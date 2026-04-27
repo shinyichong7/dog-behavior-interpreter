@@ -324,6 +324,13 @@ def confidence_color(prob):
         return "🟡"
     return "🔴"
 
+def get_feedback_count():
+    try:
+        feedback = pd.read_csv("feedback_log.csv")
+        return len(feedback)
+    except FileNotFoundError:
+        return 0
+
 def recommendation_for(pred):
     return {
         "recovery": {
@@ -861,6 +868,28 @@ elif st.session_state.phase == 4:
         risk, protective, missing = factors(inputs)
         rec = recommendation_for(pred)
 
+        # Context-only comparison
+        context_only_inputs = inputs.copy()
+        context_only_inputs["image_available"] = "no"
+        context_only_inputs["visual_mouth"] = "unknown"
+        context_only_inputs["visual_posture"] = "unknown"
+        context_only_inputs["visual_ears"] = "unknown"
+        context_only_inputs["visual_tail"] = "unknown"
+        context_only_inputs["visual_eyes"] = "unknown"
+        context_only_inputs["visual_hiding"] = "unknown"
+
+        context_only_df = pd.DataFrame([context_only_inputs])
+        context_only_pred = model.predict(context_only_df)[0]
+        context_only_probs = model.predict_proba(context_only_df)[0]
+        context_only_classes = model.named_steps["rf"].classes_
+
+        context_only_prob_df = pd.DataFrame({
+            "Behavior State": context_only_classes,
+            "Probability": context_only_probs
+        }).sort_values("Probability", ascending=False)
+
+        context_only_confidence = float(context_only_prob_df.iloc[0]["Probability"])
+
         r1, r2, r3 = st.columns([1.1, 0.9, 0.9])
 
         with r1:
@@ -906,6 +935,43 @@ elif st.session_state.phase == 4:
 
         for reason in build_reasoning(inputs, inputs["image_available"], completeness):
             st.write(f"- {reason}")
+
+        st.markdown("### Image Cue Impact Comparison")
+
+        compare_col1, compare_col2 = st.columns(2)
+
+        with compare_col1:
+            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
+            st.markdown("#### Context Only")
+            st.write("Profile + behavior context")
+            st.write(f"**Prediction:** {context_only_pred.title()}")
+            st.write(f"**Confidence:** {context_only_confidence:.0%}")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with compare_col2:
+            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
+            st.markdown("#### Context + Image-Assisted Cues")
+            st.write("Profile + context + selected visual cues")
+            st.write(f"**Prediction:** {pred.title()}")
+            st.write(f"**Confidence:** {adjusted_prob:.0%}")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        if inputs["image_available"] == "yes":
+            if context_only_pred != pred:
+                st.success(
+                    "The image-assisted visual cues changed the predicted state. "
+                    "This shows that visible body-language inputs are contributing to the outcome."
+                )
+            else:
+                st.info(
+                    "The image-assisted visual cues did not change the top predicted state, "
+                    "but they may still affect confidence and explanation quality."
+                )
+        else:
+            st.warning(
+                "No image was uploaded, so the image-assisted comparison uses unknown visual cues. "
+                "The system is relying primarily on structured context."
+            )
 
         st.markdown("### Clear Action Plan")
         a1, a2, a3 = st.columns(3)
@@ -980,7 +1046,7 @@ elif st.session_state.phase == 4:
 
 elif st.session_state.phase == 5:
     st.markdown("## Phase 5 — Feedback")
-    st.write("Feedback is optional, but it helps demonstrate how the prototype could learn from real-world outcomes.")
+    st.write("Feedback helps demonstrate how the prototype could learn from real-world outcomes. You can also start a new interpretation without submitting feedback.")
 
     result = st.session_state.prediction_result
 
@@ -994,6 +1060,26 @@ elif st.session_state.phase == 5:
         second_state = result["second_state"]
         second_prob = result["second_prob"]
         completeness = result["completeness"]
+
+        feedback_count = get_feedback_count()
+
+        st.markdown("### Learning Loop Status")
+        ll1, ll2, ll3 = st.columns(3)
+
+        with ll1:
+            st.metric("Feedback records collected", feedback_count)
+
+        with ll2:
+            st.metric("Current training source", "Synthetic data")
+
+        with ll3:
+            st.metric("Retraining mode", "Manual / future batch")
+
+        st.info(
+            "This prototype logs feedback for future dataset improvement. "
+            "It does not automatically retrain the model after each feedback submission, "
+            "because production AI systems typically retrain after enough validated feedback has been collected."
+        )
 
         with st.form("feedback_form"):
             fb1, fb2, fb3 = st.columns(3)
