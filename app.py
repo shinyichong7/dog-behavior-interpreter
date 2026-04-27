@@ -15,12 +15,61 @@ st.set_page_config(
     layout="wide"
 )
 
+# -----------------------------
+# Styling
+# -----------------------------
 st.markdown("""
 <style>
 .main .block-container {
-    padding-top: 2rem;
-    max-width: 1100px;
+    padding-top: 1rem;
+    max-width: 1120px;
 }
+
+.sticky-disclaimer {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    background-color: #FFF7ED;
+    border: 1px solid #FDBA74;
+    border-radius: 14px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #7C2D12;
+}
+
+.sticky-progress {
+    position: sticky;
+    top: 72px;
+    z-index: 999;
+    background-color: white;
+    border: 1px solid #E5E7EB;
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.progress-track {
+    height: 10px;
+    background-color: #E5E7EB;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.progress-fill {
+    height: 10px;
+    background: linear-gradient(90deg, #3B82F6, #8B5CF6);
+    border-radius: 999px;
+}
+
+.progress-label {
+    font-size: 13px;
+    color: #6B7280;
+}
+
 .card {
     padding: 1.2rem;
     border-radius: 18px;
@@ -29,6 +78,7 @@ st.markdown("""
     box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     margin-bottom: 1rem;
 }
+
 .result-card {
     padding: 1.4rem;
     border-radius: 20px;
@@ -36,16 +86,31 @@ st.markdown("""
     background-color: #F0FDF4;
     margin-bottom: 1rem;
 }
+
+.sticky-result {
+    position: sticky;
+    top: 152px;
+    z-index: 998;
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px solid #BBF7D0;
+    background-color: #F0FDF4;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
 .warning-card {
     padding: 1rem;
     border-radius: 16px;
     border: 1px solid #FDE68A;
     background-color: #FFFBEB;
 }
+
 .small-muted {
     color: #6B7280;
     font-size: 0.9rem;
 }
+
 .step-pill {
     display: inline-block;
     padding: 0.4rem 0.75rem;
@@ -56,10 +121,60 @@ st.markdown("""
     margin-right: 0.4rem;
     margin-bottom: 0.4rem;
 }
+
+.kpi-box {
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px solid #E5E7EB;
+    background-color: #F9FAFB;
+}
 </style>
 """, unsafe_allow_html=True)
 
+# -----------------------------
+# Session state
+# -----------------------------
+if "analysis_done" not in st.session_state:
+    st.session_state.analysis_done = False
 
+if "feedback_done" not in st.session_state:
+    st.session_state.feedback_done = False
+
+
+def progress_state():
+    if st.session_state.feedback_done:
+        return 1.0, "Complete: feedback captured for learning loop"
+    if st.session_state.analysis_done:
+        return 0.75, "Step 3 of 4: review AI interpretation and decide action"
+    return 0.35, "Step 1–2 of 4: enter context and visual cues"
+
+
+progress_value, progress_text = progress_state()
+
+# -----------------------------
+# Persistent safety disclaimer + progress
+# -----------------------------
+st.markdown("""
+<div class="sticky-disclaimer">
+⚠️ <b>Disclaimer:</b> This prototype provides behavioral guidance only. It is <b>not a medical or diagnostic tool</b>.
+Seek veterinary care immediately if your dog shows labored breathing, collapse, pale gums, vomiting, severe distress, or symptoms that are unusual, persistent, or worsening.
+For recurring anxiety-related behavior, consult a licensed veterinarian, certified trainer, or veterinary behavior professional.
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown(f"""
+<div class="sticky-progress">
+    <b>Prototype progress</b>
+    <div class="progress-track">
+        <div class="progress-fill" style="width:{int(progress_value * 100)}%;"></div>
+    </div>
+    <div class="progress-label">{progress_text}</div>
+</div>
+""", unsafe_allow_html=True)
+
+# -----------------------------
+# Data generation
+# -----------------------------
 @st.cache_data
 def generate_data(n=1200):
     np.random.seed(42)
@@ -193,7 +308,9 @@ def train_model(df):
 df = generate_data()
 model, metrics = train_model(df)
 
-
+# -----------------------------
+# Helper functions
+# -----------------------------
 def confidence_label(prob):
     if prob >= 0.75:
         return "High confidence"
@@ -402,12 +519,16 @@ def recommendation_for(pred):
 
 def escalation_guidance():
     return [
-        "Seek veterinary guidance if panting is intense, unexplained, prolonged, or paired with collapse, vomiting, pale gums, labored breathing, or severe distress.",
-        "Seek trainer or behaviorist support if anxiety-like behaviors are frequent, escalating, or interfering with daily life.",
-        "This prototype is decision support only and does not diagnose medical or behavioral conditions."
+        "Seek veterinary care immediately if your dog shows labored breathing, collapse, pale gums, vomiting, severe distress, or other emergency signs.",
+        "Consult a veterinarian if symptoms persist, worsen, or are unusual for your dog.",
+        "Consult a certified trainer or veterinary behavior professional if anxiety-related behaviors are frequent, escalating, or interfering with daily life.",
+        "This tool is for behavioral decision support only and does not replace professional medical or behavioral evaluation."
     ]
 
 
+# -----------------------------
+# Sidebar
+# -----------------------------
 with st.sidebar:
     st.header("Prototype Model Metrics")
     st.metric("Accuracy", f"{metrics['accuracy']:.0%}")
@@ -418,14 +539,16 @@ with st.sidebar:
         st.write(
             """
             This prototype uses synthetic labeled examples to demonstrate the AI workflow.
-            The image is used for image-assisted manual visual cue extraction.
-            The user reviews the uploaded image and selects visible cues such as posture,
-            ears, tail, eyes, and panting visibility. These visual cues are included as model features.
+            The uploaded image supports image-assisted manual visual cue extraction.
+            The user reviews the image and selects visible cues such as posture, ears, tail, eyes, and panting visibility.
+            These cues are included as model features.
             A production version could automate this step with computer vision or short video analysis.
             """
         )
 
-
+# -----------------------------
+# Header
+# -----------------------------
 left, right = st.columns([2, 1])
 
 with left:
@@ -437,18 +560,21 @@ with left:
 
 with right:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("**Prototype Flow**")
+    st.markdown("**How it works**")
     st.markdown(
-        "<span class='step-pill'>1 Input</span>"
-        "<span class='step-pill'>2 Visual Cues</span>"
-        "<span class='step-pill'>3 Analyze</span>"
-        "<span class='step-pill'>4 Feedback</span>",
+        "<span class='step-pill'>Input</span>"
+        "<span class='step-pill'>Visual cues</span>"
+        "<span class='step-pill'>AI interpretation</span>"
+        "<span class='step-pill'>Feedback loop</span>",
         unsafe_allow_html=True
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
 st.divider()
 
+# -----------------------------
+# Input form
+# -----------------------------
 st.markdown("## Step 1 — Enter dog profile and behavior context")
 st.progress(0.25)
 
@@ -483,6 +609,11 @@ with form_col:
         st.markdown("### Upload image and extract visual cues")
         image = st.file_uploader("Optional dog image", type=["jpg", "png", "jpeg"])
 
+        st.caption(
+            "Use the image or your real-time observation to select visible cues. "
+            "These cues are used by the model."
+        )
+
         visual_cols = st.columns(2)
 
         with visual_cols[0]:
@@ -507,6 +638,7 @@ with preview_col:
     st.write(f"**Environment:** {environment}")
     st.write(f"**Duration:** {duration}")
     st.write(f"**Assumption:** {assumption}")
+
     st.markdown("**Visual cues**")
     st.write(f"- Mouth: {visual_mouth}")
     st.write(f"- Posture: {visual_posture}")
@@ -522,10 +654,15 @@ with preview_col:
             "<span class='small-muted'>Image optional: visual cues can still be entered manually if observed directly.</span>",
             unsafe_allow_html=True
         )
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-
+# -----------------------------
+# Results
+# -----------------------------
 if submitted:
+    st.session_state.analysis_done = True
+
     st.divider()
     st.markdown("## Step 2 — AI interpretation")
     st.progress(0.70)
@@ -577,6 +714,13 @@ if submitted:
         visual_eyes,
         visual_hiding
     )
+
+    st.markdown(f"""
+    <div class="sticky-result">
+        <b>{confidence_color(top_prob)} Current interpretation:</b> {pred.title()} &nbsp; | &nbsp;
+        <b>Confidence:</b> {top_prob:.0%} ({confidence_label(top_prob)})
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("<div class='result-card'>", unsafe_allow_html=True)
     st.markdown(f"### {confidence_color(top_prob)} Likely state: **{pred.title()}**")
@@ -646,7 +790,7 @@ if submitted:
         chart_df = prob_df.set_index("Behavior State")
         st.bar_chart(chart_df)
 
-    with st.expander("When to escalate"):
+    with st.expander("When to seek professional help"):
         for item in escalation_guidance():
             st.write(f"- {item}")
 
@@ -669,6 +813,8 @@ if submitted:
         feedback_submitted = st.form_submit_button("Submit Feedback", use_container_width=True)
 
     if feedback_submitted:
+        st.session_state.feedback_done = True
+
         feedback_row = {
             "timestamp": datetime.now().isoformat(),
             "dog_name": dog_name,
