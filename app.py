@@ -56,18 +56,12 @@ st.markdown("""
     margin-right: 0.4rem;
     margin-bottom: 0.4rem;
 }
-.metric-label {
-    color: #6B7280;
-    font-size: 0.85rem;
-}
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------
-# Data + Model
-# -----------------------------
+
 @st.cache_data
-def generate_data(n=900):
+def generate_data(n=1200):
     np.random.seed(42)
 
     behaviors = ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"]
@@ -79,6 +73,13 @@ def generate_data(n=900):
     size = ["small", "medium", "large"]
     energy = ["low", "moderate", "high"]
     sensitivity = ["low", "moderate", "high"]
+
+    mouth = ["unknown", "closed mouth", "open mouth / panting"]
+    posture = ["unknown", "relaxed", "alert", "tense", "crouched"]
+    ears = ["unknown", "neutral", "back/pinned"]
+    tail = ["unknown", "relaxed", "tucked", "high"]
+    eyes = ["unknown", "relaxed", "wide-eyed / whale eye"]
+    hiding_visible = ["unknown", "yes", "no"]
 
     rows = []
 
@@ -93,26 +94,48 @@ def generate_data(n=900):
         en = np.random.choice(energy)
         sens = np.random.choice(sensitivity)
 
-        if b == "panting" and (a == "high" or e == "warm") and d in ["short", "medium"]:
+        m = np.random.choice(mouth)
+        p = np.random.choice(posture)
+        er = np.random.choice(ears)
+        t = np.random.choice(tail)
+        ey = np.random.choice(eyes)
+        hv = np.random.choice(hiding_visible)
+
+        anxiety_visuals = (
+            p in ["tense", "crouched"]
+            or er == "back/pinned"
+            or t == "tucked"
+            or ey == "wide-eyed / whale eye"
+            or hv == "yes"
+        )
+
+        relaxed_visuals = (
+            p == "relaxed"
+            and er in ["neutral", "unknown"]
+            and t in ["relaxed", "unknown"]
+            and ey in ["relaxed", "unknown"]
+        )
+
+        if (b == "panting" or m == "open mouth / panting") and (a == "high" or e == "warm") and d in ["short", "medium"]:
             label = "recovery"
+        elif anxiety_visuals and (e == "noisy" or sens == "high" or d == "long"):
+            label = "anxiety"
         elif b in ["pacing", "whining", "hiding"] and e == "noisy":
             label = "anxiety"
         elif b == "pacing" and d == "long" and a == "none":
             label = "anxiety"
-        elif b in ["whining", "hiding"] and sens == "high":
-            label = "anxiety"
-        elif b == "toy-seeking" and a in ["none", "low"]:
+        elif b == "toy-seeking" and a in ["none", "low"] and not anxiety_visuals:
             label = "boredom"
         elif b in ["pacing", "panting"] and a == "high" and en == "high":
             label = "overstimulation"
-        elif b == "resting":
+        elif b == "resting" and relaxed_visuals:
             label = "neutral"
-        elif b == "panting" and ag == "senior" and d == "long":
+        elif (b == "panting" or m == "open mouth / panting") and ag == "senior" and d == "long":
             label = "needs observation"
         else:
             label = np.random.choice(
                 ["anxiety", "boredom", "overstimulation", "recovery", "neutral", "needs observation"],
-                p=[0.23, 0.20, 0.18, 0.18, 0.13, 0.08]
+                p=[0.23, 0.19, 0.18, 0.18, 0.14, 0.08]
             )
 
         rows.append({
@@ -125,10 +148,17 @@ def generate_data(n=900):
             "size": sz,
             "energy": en,
             "sensitivity": sens,
+            "visual_mouth": m,
+            "visual_posture": p,
+            "visual_ears": er,
+            "visual_tail": t,
+            "visual_eyes": ey,
+            "visual_hiding": hv,
             "label": label
         })
 
     return pd.DataFrame(rows)
+
 
 @st.cache_resource
 def train_model(df):
@@ -141,7 +171,7 @@ def train_model(df):
 
     model = Pipeline([
         ("prep", preprocessor),
-        ("rf", RandomForestClassifier(n_estimators=175, random_state=42, class_weight="balanced"))
+        ("rf", RandomForestClassifier(n_estimators=200, random_state=42, class_weight="balanced"))
     ])
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -159,27 +189,42 @@ def train_model(df):
 
     return model, metrics
 
+
 df = generate_data()
 model, metrics = train_model(df)
 
-# -----------------------------
-# Helper functions
-# -----------------------------
+
 def confidence_label(prob):
     if prob >= 0.75:
         return "High confidence"
-    elif prob >= 0.55:
+    if prob >= 0.55:
         return "Moderate confidence"
     return "Low confidence"
+
 
 def confidence_color(prob):
     if prob >= 0.75:
         return "🟢"
-    elif prob >= 0.55:
+    if prob >= 0.55:
         return "🟡"
     return "🔴"
 
-def build_reasoning(behavior, activity, environment, duration, age_group, energy, sensitivity):
+
+def build_reasoning(
+    behavior,
+    activity,
+    environment,
+    duration,
+    age_group,
+    energy,
+    sensitivity,
+    visual_mouth,
+    visual_posture,
+    visual_ears,
+    visual_tail,
+    visual_eyes,
+    visual_hiding
+):
     reasons = []
 
     if behavior == "panting":
@@ -195,6 +240,19 @@ def build_reasoning(behavior, activity, environment, duration, age_group, energy
     if behavior == "resting":
         reasons.append("Resting generally lowers concern unless paired with unusual context or sudden change.")
 
+    if visual_mouth == "open mouth / panting":
+        reasons.append("The image-assisted cue indicates an open mouth or visible panting.")
+    if visual_posture in ["tense", "crouched"]:
+        reasons.append(f"The image-assisted posture cue is {visual_posture}, which can increase concern.")
+    if visual_ears == "back/pinned":
+        reasons.append("Pinned-back ears can be associated with stress, uncertainty, or avoidance.")
+    if visual_tail == "tucked":
+        reasons.append("A tucked tail can indicate fear, anxiety, or discomfort.")
+    if visual_eyes == "wide-eyed / whale eye":
+        reasons.append("Wide eyes or whale eye can be a stress-related visual cue.")
+    if visual_hiding == "yes":
+        reasons.append("Visible hiding or avoidance increases the likelihood of stress-related interpretation.")
+
     if activity == "high":
         reasons.append("Recent high activity increases the likelihood of recovery or overstimulation.")
     elif activity == "none":
@@ -206,7 +264,7 @@ def build_reasoning(behavior, activity, environment, duration, age_group, energy
         reasons.append("Noise can increase stress sensitivity and anxiety-related behavior.")
 
     if duration == "long":
-        reasons.append("Longer duration raises concern because repeated behavior is less likely to be a brief normal response.")
+        reasons.append("Long duration raises concern because repeated behavior is less likely to be a brief normal response.")
     elif duration == "short":
         reasons.append("Short duration lowers concern and may indicate a temporary state.")
 
@@ -219,12 +277,37 @@ def build_reasoning(behavior, activity, environment, duration, age_group, energy
 
     return reasons
 
-def risk_and_protective_factors(behavior, activity, environment, duration, age_group, energy, sensitivity):
+
+def risk_and_protective_factors(
+    behavior,
+    activity,
+    environment,
+    duration,
+    age_group,
+    energy,
+    sensitivity,
+    visual_mouth,
+    visual_posture,
+    visual_ears,
+    visual_tail,
+    visual_eyes,
+    visual_hiding
+):
     risk = []
     protective = []
 
     if behavior in ["pacing", "whining", "hiding"]:
         risk.append(f"Observed behavior: {behavior}")
+    if visual_posture in ["tense", "crouched"]:
+        risk.append(f"Visual posture cue: {visual_posture}")
+    if visual_ears == "back/pinned":
+        risk.append("Visual cue: ears back/pinned")
+    if visual_tail == "tucked":
+        risk.append("Visual cue: tucked tail")
+    if visual_eyes == "wide-eyed / whale eye":
+        risk.append("Visual cue: wide-eyed / whale eye")
+    if visual_hiding == "yes":
+        risk.append("Visual cue: hiding or avoidance")
     if environment == "noisy":
         risk.append("Noisy environment")
     if duration == "long":
@@ -236,7 +319,7 @@ def risk_and_protective_factors(behavior, activity, environment, duration, age_g
     if activity == "none" and behavior in ["pacing", "toy-seeking"]:
         risk.append("No recent activity with active behavior")
 
-    if activity == "high" and behavior == "panting":
+    if activity == "high" and (behavior == "panting" or visual_mouth == "open mouth / panting"):
         protective.append("Panting after high activity can indicate normal recovery")
     if duration == "short":
         protective.append("Short duration")
@@ -244,6 +327,14 @@ def risk_and_protective_factors(behavior, activity, environment, duration, age_g
         protective.append("No obvious heat/noise trigger selected")
     if behavior == "resting":
         protective.append("Resting is generally neutral")
+    if visual_posture == "relaxed":
+        protective.append("Visual posture cue: relaxed")
+    if visual_ears == "neutral":
+        protective.append("Visual cue: neutral ears")
+    if visual_tail == "relaxed":
+        protective.append("Visual cue: relaxed tail")
+    if visual_eyes == "relaxed":
+        protective.append("Visual cue: relaxed eyes")
     if sensitivity in ["low", "moderate"]:
         protective.append(f"{sensitivity.title()} stress sensitivity")
 
@@ -254,34 +345,60 @@ def risk_and_protective_factors(behavior, activity, environment, duration, age_g
 
     return risk, protective
 
+
 def recommendation_for(pred):
     recs = {
         "recovery": {
             "summary": "Provide water, allow rest, and reassess in 10–15 minutes.",
-            "steps": ["Offer water.", "Move to a calm area.", "Avoid more intense activity until breathing and posture normalize."]
+            "steps": [
+                "Offer water.",
+                "Move to a calm area.",
+                "Avoid more intense activity until breathing and posture normalize."
+            ]
         },
         "anxiety": {
             "summary": "Reduce stimuli and observe for additional stress signals.",
-            "steps": ["Lower noise and stimulation.", "Give space rather than forcing interaction.", "Watch for repeated pacing, hiding, trembling, or inability to settle."]
+            "steps": [
+                "Lower noise and stimulation.",
+                "Give space rather than forcing interaction.",
+                "Watch for repeated pacing, hiding, trembling, or inability to settle."
+            ]
         },
         "boredom": {
             "summary": "Offer enrichment, light play, or a short training activity.",
-            "steps": ["Try a puzzle toy, sniff game, or short training session.", "Keep the activity low-pressure.", "Reassess whether behavior decreases afterward."]
+            "steps": [
+                "Try a puzzle toy, sniff game, or short training session.",
+                "Keep the activity low-pressure.",
+                "Reassess whether behavior decreases afterward."
+            ]
         },
         "overstimulation": {
             "summary": "Pause activity and create a calmer environment.",
-            "steps": ["Stop exciting play.", "Move to a quiet space.", "Use calm routines and let the dog decompress."]
+            "steps": [
+                "Stop exciting play.",
+                "Move to a quiet space.",
+                "Use calm routines and let the dog decompress."
+            ]
         },
         "neutral": {
             "summary": "Continue observing. No immediate intervention appears necessary.",
-            "steps": ["Monitor for changes.", "Avoid over-intervening if the dog appears relaxed.", "Reassess if behavior changes or persists."]
+            "steps": [
+                "Monitor for changes.",
+                "Avoid over-intervening if the dog appears relaxed.",
+                "Reassess if behavior changes or persists."
+            ]
         },
         "needs observation": {
             "summary": "Observe closely and consider professional guidance if behavior persists.",
-            "steps": ["Monitor duration and intensity.", "Look for changes in breathing, posture, appetite, or responsiveness.", "Contact a veterinarian or trainer if unusual or persistent."]
+            "steps": [
+                "Monitor duration and intensity.",
+                "Look for changes in breathing, posture, appetite, or responsiveness.",
+                "Contact a veterinarian or trainer if unusual or persistent."
+            ]
         }
     }
     return recs[pred]
+
 
 def escalation_guidance():
     return [
@@ -290,31 +407,9 @@ def escalation_guidance():
         "This prototype is decision support only and does not diagnose medical or behavioral conditions."
     ]
 
-# -----------------------------
-# Header
-# -----------------------------
-left, right = st.columns([2, 1])
 
-with left:
-    st.title("🐶 Dog Behavior Interpreter")
-    st.write(
-        "A mobile-first AI prototype that uses dog profile + behavior context to interpret ambiguous behavior "
-        "and recommend a next action."
-    )
-
-with right:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("**Prototype Status**")
-    st.markdown("<span class='step-pill'>1 Input</span><span class='step-pill'>2 Analyze</span><span class='step-pill'>3 Act</span><span class='step-pill'>4 Feedback</span>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-st.divider()
-
-# -----------------------------
-# Sidebar
-# -----------------------------
 with st.sidebar:
-    st.header("Model Metrics")
+    st.header("Prototype Model Metrics")
     st.metric("Accuracy", f"{metrics['accuracy']:.0%}")
     st.metric("Weighted Precision", f"{metrics['precision']:.0%}")
     st.metric("Weighted Recall", f"{metrics['recall']:.0%}")
@@ -323,14 +418,37 @@ with st.sidebar:
         st.write(
             """
             This prototype uses synthetic labeled examples to demonstrate the AI workflow.
-            The image supports the intended user journey, but the current prediction is based on structured behavior and context inputs.
-            A production version would use trainer-labeled video/image data and real outcome feedback.
+            The image is used for image-assisted manual visual cue extraction.
+            The user reviews the uploaded image and selects visible cues such as posture,
+            ears, tail, eyes, and panting visibility. These visual cues are included as model features.
+            A production version could automate this step with computer vision or short video analysis.
             """
         )
 
-# -----------------------------
-# Input Form
-# -----------------------------
+
+left, right = st.columns([2, 1])
+
+with left:
+    st.title("🐶 Dog Behavior Interpreter")
+    st.write(
+        "A mobile-first AI prototype that uses dog profile, behavior context, and image-assisted visual cues "
+        "to interpret ambiguous behavior and recommend a next action."
+    )
+
+with right:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("**Prototype Flow**")
+    st.markdown(
+        "<span class='step-pill'>1 Input</span>"
+        "<span class='step-pill'>2 Visual Cues</span>"
+        "<span class='step-pill'>3 Analyze</span>"
+        "<span class='step-pill'>4 Feedback</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+st.divider()
+
 st.markdown("## Step 1 — Enter dog profile and behavior context")
 st.progress(0.25)
 
@@ -362,32 +480,55 @@ with form_col:
             environment = st.selectbox("Environment", ["indoor", "outdoor", "warm", "noisy"])
             duration = st.selectbox("Duration", ["short", "medium", "long"])
 
+        st.markdown("### Upload image and extract visual cues")
         image = st.file_uploader("Optional dog image", type=["jpg", "png", "jpeg"])
+
+        visual_cols = st.columns(2)
+
+        with visual_cols[0]:
+            visual_mouth = st.selectbox("Mouth / panting visible", ["unknown", "closed mouth", "open mouth / panting"])
+            visual_posture = st.selectbox("Body posture", ["unknown", "relaxed", "alert", "tense", "crouched"])
+            visual_ears = st.selectbox("Ear position", ["unknown", "neutral", "back/pinned"])
+
+        with visual_cols[1]:
+            visual_tail = st.selectbox("Tail position", ["unknown", "relaxed", "tucked", "high"])
+            visual_eyes = st.selectbox("Eye expression", ["unknown", "relaxed", "wide-eyed / whale eye"])
+            visual_hiding = st.selectbox("Hiding / avoidance visible", ["unknown", "yes", "no"])
 
         submitted = st.form_submit_button("Analyze Behavior", type="primary", use_container_width=True)
 
 with preview_col:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Input summary")
-    st.write("Use only inputs that help the model interpret behavior.")
+    st.write("Only inputs that contribute to interpretation are collected.")
+    st.write(f"**Dog:** {dog_name}")
     st.write(f"**Behavior:** {behavior}")
     st.write(f"**Activity:** {activity}")
     st.write(f"**Environment:** {environment}")
     st.write(f"**Duration:** {duration}")
     st.write(f"**Assumption:** {assumption}")
+    st.markdown("**Visual cues**")
+    st.write(f"- Mouth: {visual_mouth}")
+    st.write(f"- Posture: {visual_posture}")
+    st.write(f"- Ears: {visual_ears}")
+    st.write(f"- Tail: {visual_tail}")
+    st.write(f"- Eyes: {visual_eyes}")
+    st.write(f"- Hiding/avoidance: {visual_hiding}")
+
     if image:
-        st.image(image, caption="Uploaded dog image", use_container_width=True)
+        st.image(image, caption="Uploaded dog image for visual cue review", use_container_width=True)
     else:
-        st.markdown("<span class='small-muted'>Image optional: current prototype uses structured context for prediction.</span>", unsafe_allow_html=True)
+        st.markdown(
+            "<span class='small-muted'>Image optional: visual cues can still be entered manually if observed directly.</span>",
+            unsafe_allow_html=True
+        )
     st.markdown("</div>", unsafe_allow_html=True)
 
-# -----------------------------
-# Results
-# -----------------------------
+
 if submitted:
     st.divider()
     st.markdown("## Step 2 — AI interpretation")
-    st.progress(0.65)
+    st.progress(0.70)
 
     input_df = pd.DataFrame([{
         "behavior": behavior,
@@ -398,7 +539,13 @@ if submitted:
         "age_group": age_group,
         "size": size,
         "energy": energy,
-        "sensitivity": sensitivity
+        "sensitivity": sensitivity,
+        "visual_mouth": visual_mouth,
+        "visual_posture": visual_posture,
+        "visual_ears": visual_ears,
+        "visual_tail": visual_tail,
+        "visual_eyes": visual_eyes,
+        "visual_hiding": visual_hiding
     }])
 
     pred = model.predict(input_df)[0]
@@ -416,7 +563,19 @@ if submitted:
 
     rec = recommendation_for(pred)
     risk, protective = risk_and_protective_factors(
-        behavior, activity, environment, duration, age_group, energy, sensitivity
+        behavior,
+        activity,
+        environment,
+        duration,
+        age_group,
+        energy,
+        sensitivity,
+        visual_mouth,
+        visual_posture,
+        visual_ears,
+        visual_tail,
+        visual_eyes,
+        visual_hiding
     )
 
     st.markdown("<div class='result-card'>", unsafe_allow_html=True)
@@ -436,7 +595,22 @@ if submitted:
 
     with output_cols[0]:
         st.markdown("### Why this prediction was generated")
-        for reason in build_reasoning(behavior, activity, environment, duration, age_group, energy, sensitivity):
+        reasons = build_reasoning(
+            behavior,
+            activity,
+            environment,
+            duration,
+            age_group,
+            energy,
+            sensitivity,
+            visual_mouth,
+            visual_posture,
+            visual_ears,
+            visual_tail,
+            visual_eyes,
+            visual_hiding
+        )
+        for reason in reasons:
             st.write(f"- {reason}")
 
     with output_cols[1]:
@@ -507,6 +681,12 @@ if submitted:
             "size": size,
             "energy": energy,
             "sensitivity": sensitivity,
+            "visual_mouth": visual_mouth,
+            "visual_posture": visual_posture,
+            "visual_ears": visual_ears,
+            "visual_tail": visual_tail,
+            "visual_eyes": visual_eyes,
+            "visual_hiding": visual_hiding,
             "prediction": pred,
             "confidence": round(top_prob, 3),
             "secondary_state": second_state,
@@ -531,4 +711,4 @@ if submitted:
             st.dataframe(feedback_df)
 
 else:
-    st.info("Complete the form and click Analyze Behavior to move from input to AI interpretation.")
+    st.info("Complete the profile, behavior context, and visual cue review. Then click Analyze Behavior.")
