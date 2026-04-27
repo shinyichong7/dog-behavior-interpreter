@@ -1,7 +1,12 @@
+import os
+import json
+import base64
+from datetime import datetime
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from openai import OpenAI
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
@@ -9,7 +14,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 
+
 st.set_page_config(page_title="Dog Behavior Interpreter", page_icon="🐶", layout="wide")
+
 
 # ==================================================
 # CSS
@@ -97,12 +104,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 # ==================================================
 # SESSION STATE
 # ==================================================
 
 def set_phase(n):
     st.session_state.phase = n
+
 
 if "phase" not in st.session_state:
     st.session_state.phase = 1
@@ -112,6 +121,21 @@ if "prediction_result" not in st.session_state:
 
 if "feedback_done" not in st.session_state:
     st.session_state.feedback_done = False
+
+for key, default in {
+    "visual_mouth": "unknown",
+    "visual_posture": "unknown",
+    "visual_ears": "unknown",
+    "visual_tail": "unknown",
+    "visual_eyes": "unknown",
+    "visual_hiding": "unknown",
+    "image_available": "no",
+    "image_ai_confidence": None,
+    "image_ai_reason": None,
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
+
 
 # ==================================================
 # DATA + MODEL
@@ -221,6 +245,7 @@ def generate_data(n=1400):
 
     return pd.DataFrame(rows)
 
+
 @st.cache_resource
 def train_model(df):
     X = df.drop("label", axis=1)
@@ -250,12 +275,82 @@ def train_model(df):
 
     return model, metrics
 
+
 df = generate_data()
 model, metrics = train_model(df)
+
 
 # ==================================================
 # HELPERS
 # ==================================================
+
+def get_openai_key():
+    try:
+        return st.secrets.get("OPENAI_API_KEY", None)
+    except Exception:
+        return os.environ.get("OPENAI_API_KEY")
+
+
+def analyze_image_with_ai(uploaded_image):
+    api_key = get_openai_key()
+
+    if not api_key:
+        return {"error": "No OpenAI API key found. Add OPENAI_API_KEY in Streamlit Secrets."}
+
+    client = OpenAI(api_key=api_key)
+
+    image_bytes = uploaded_image.getvalue()
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    mime_type = uploaded_image.type or "image/jpeg"
+
+    prompt = """
+You are analyzing an uploaded image for a dog behavior interpretation prototype.
+
+Your job:
+1. Determine whether the image clearly shows a dog.
+2. If it does not clearly show a dog, return image_valid=false.
+3. If it shows a dog, infer visible body-language cues using ONLY the allowed values below.
+
+Return valid JSON only. No markdown. No explanation outside JSON.
+
+Allowed schema:
+{
+  "image_valid": true or false,
+  "reason": "short explanation",
+  "visual_mouth": "unknown | closed mouth | open mouth / panting",
+  "visual_posture": "unknown | relaxed | alert | tense | crouched",
+  "visual_ears": "unknown | neutral | back/pinned",
+  "visual_tail": "unknown | relaxed | tucked | high",
+  "visual_eyes": "unknown | relaxed | wide-eyed / whale eye",
+  "visual_hiding": "unknown | yes | no",
+  "confidence": 0.0 to 1.0
+}
+
+Be conservative. If a cue is not clearly visible, use "unknown".
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": prompt},
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{mime_type};base64,{image_base64}"
+                        }
+                    ]
+                }
+            ]
+        )
+
+        return json.loads(response.output_text)
+
+    except Exception as e:
+        return {"error": f"Image analysis failed: {str(e)}"}
+
 
 def visual_cue_completeness(image_available, *visuals):
     known = sum(v != "unknown" for v in visuals)
@@ -264,12 +359,14 @@ def visual_cue_completeness(image_available, *visuals):
         return min(1.0, base + 0.15)
     return base * 0.75
 
+
 def confidence_adjustment(base_prob, completeness):
     if completeness >= 0.75:
         return min(0.98, base_prob + 0.07)
     if completeness >= 0.4:
         return min(0.95, base_prob + 0.02)
     return max(0.35, base_prob - 0.08)
+
 
 def confidence_label(prob):
     if prob >= 0.75:
@@ -278,12 +375,14 @@ def confidence_label(prob):
         return "Moderate confidence"
     return "Low confidence"
 
+
 def quality_label(score):
     if score >= 0.75:
         return "High"
     if score >= 0.4:
         return "Medium"
     return "Low"
+
 
 def confidence_color(prob):
     if prob >= 0.75:
@@ -292,12 +391,14 @@ def confidence_color(prob):
         return "🟡"
     return "🔴"
 
+
 def get_feedback_count():
     try:
         feedback = pd.read_csv("feedback_log.csv")
         return len(feedback)
     except FileNotFoundError:
         return 0
+
 
 def recommendation_for(pred):
     return {
@@ -339,6 +440,7 @@ def recommendation_for(pred):
         }
     }[pred]
 
+
 def escalation_guidance():
     return [
         "Seek veterinary care immediately if your dog shows labored breathing, collapse, pale gums, vomiting, severe distress, or other emergency signs.",
@@ -347,11 +449,12 @@ def escalation_guidance():
         "This tool is for behavioral decision support only and does not replace professional medical or behavioral evaluation."
     ]
 
+
 def build_reasoning(inputs, image_available, completeness):
     reasons = []
 
     if image_available == "yes":
-        reasons.append("Image-assisted cues were included, so the prediction uses both owner context and visible body-language signals.")
+        reasons.append("AI-assisted image cues were included, so the prediction uses both owner context and visible body-language signals.")
     else:
         reasons.append("No image was used in this run. The interpretation is based on profile and behavior context only.")
 
@@ -394,6 +497,7 @@ def build_reasoning(inputs, image_available, completeness):
 
     reasons.append(f"Interpretation quality is {quality_label(completeness)} based on available visual and contextual cues.")
     return reasons
+
 
 def factors(inputs):
     risk = []
@@ -456,6 +560,7 @@ def factors(inputs):
 
     return risk, protective, missing
 
+
 # ==================================================
 # SIDEBAR
 # ==================================================
@@ -474,7 +579,7 @@ with st.sidebar:
 
         if current_image_status == "yes":
             st.success(
-                "Image cues were used in this interpretation. The model considered visible body-language cues "
+                "Image cues were used in this interpretation. The model considered AI-extracted body-language cues "
                 "such as mouth position, posture, ears, tail, eyes, and hiding/avoidance."
             )
         elif current_image_status == "no":
@@ -485,19 +590,19 @@ with st.sidebar:
             )
         else:
             st.info(
-                "Complete the interpreter to see whether the final result uses image-assisted visual cues or context only."
+                "Complete the interpreter to see whether the final result uses AI-extracted image cues or context only."
             )
 
     with st.expander("Data transparency"):
         st.write(
             """
             This prototype uses synthetic labeled examples to demonstrate the AI workflow.
-            The image is not automatically analyzed by computer vision. Instead, it supports
-            image-assisted visual cue extraction: the user reviews the image and selects visible
-            cues such as posture, ears, tail, eyes, and panting visibility. Those visual cues are
-            included as model features and affect the prediction and confidence.
+            When a dog image is uploaded, a vision model validates whether the image contains a dog and pre-fills visible cues.
+            The user can review and override those cues before generating the final interpretation.
+            Feedback is logged for future retraining, but the model does not automatically retrain after each submission.
             """
         )
+
 
 # ==================================================
 # HEADER
@@ -505,7 +610,7 @@ with st.sidebar:
 
 st.title("🐶 Dog Behavior Interpreter")
 st.write(
-    "A mobile-first AI prototype that helps owners interpret ambiguous dog behavior using profile, context, and image-assisted visual cues."
+    "A mobile-first AI prototype that helps owners interpret ambiguous dog behavior using profile, context, and AI-extracted image cues."
 )
 
 st.markdown("""
@@ -529,6 +634,7 @@ for i, step in enumerate(steps, start=1):
     step_html += f"<span class='{cls}'>{i}. {step}</span>"
 step_html += "</div>"
 st.markdown(step_html, unsafe_allow_html=True)
+
 
 # ==================================================
 # PHASE 1
@@ -555,6 +661,7 @@ if st.session_state.phase == 1:
     with nav1:
         st.button("Next: Context", type="primary", on_click=set_phase, args=(2,), use_container_width=True)
 
+
 # ==================================================
 # PHASE 2
 # ==================================================
@@ -578,52 +685,84 @@ elif st.session_state.phase == 2:
     with nav2:
         st.button("Next: Visual Cues", type="primary", on_click=set_phase, args=(3,), use_container_width=True)
 
+
 # ==================================================
 # PHASE 3
 # ==================================================
 
 elif st.session_state.phase == 3:
-    st.markdown("## Phase 3 — Image-Assisted Visual Cue Review")
+    st.markdown("## Phase 3 — AI Image Cue Review")
 
     st.write(
-        "Upload a dog image if available, then select visible cues. These cues are used as model features and can change the interpretation."
+        "Upload a dog image if available. The app will use AI to validate the image and pre-fill visible body-language cues. You can review and override the selections before analysis."
     )
 
-    image = st.file_uploader("Upload dog image", type=["jpg", "jpeg", "png"], help="Only dog images are accepted. The image supports manual visual cue extraction and is not automatically analyzed by computer vision.")
+    image = st.file_uploader(
+        "Upload dog image",
+        type=["jpg", "jpeg", "png"],
+        help="Only dog images are accepted. The image is analyzed to pre-fill visual cues such as posture, ears, tail, eyes, and panting visibility."
+    )
 
-    image_content = "no image uploaded"
     invalid_image = False
 
     if image:
-        st.image(image, caption="Uploaded image for visual cue review", width=350)
+        st.image(image, caption="Uploaded image for AI cue extraction", width=350)
 
-        image_content = st.selectbox(
-            "What does this image show?",
-            ["dog", "human / not a dog", "other / unclear"],
-            help="Guardrail: this prototype only accepts dog images. If the image does not show a dog, it cannot be used for visual cue extraction."
-        )
+        if st.button("Analyze Image Cues with AI", type="secondary"):
+            with st.spinner("Analyzing image cues..."):
+                image_result = analyze_image_with_ai(image)
 
-        if image_content != "dog":
-            invalid_image = True
-            st.error(
-                "Invalid image for this prototype. Please upload an image that clearly shows a dog, or remove the image and continue using context only."
-            )
+            if "error" in image_result:
+                st.error(image_result["error"])
+                st.session_state.image_available = "no"
 
-    st.session_state.image_available = "yes" if image and image_content == "dog" else "no"
+            elif not image_result.get("image_valid", False):
+                st.error("Invalid image for this prototype. Please upload an image that clearly shows a dog.")
+                st.write(image_result.get("reason", "The image could not be validated as a dog image."))
+                st.session_state.image_available = "no"
+                invalid_image = True
+
+            else:
+                st.success("Dog image validated. Visual cues were auto-filled.")
+                st.write(image_result.get("reason", ""))
+
+                st.session_state.image_available = "yes"
+                st.session_state.visual_mouth = image_result.get("visual_mouth", "unknown")
+                st.session_state.visual_posture = image_result.get("visual_posture", "unknown")
+                st.session_state.visual_ears = image_result.get("visual_ears", "unknown")
+                st.session_state.visual_tail = image_result.get("visual_tail", "unknown")
+                st.session_state.visual_eyes = image_result.get("visual_eyes", "unknown")
+                st.session_state.visual_hiding = image_result.get("visual_hiding", "unknown")
+                st.session_state.image_ai_confidence = image_result.get("confidence", None)
+                st.session_state.image_ai_reason = image_result.get("reason", None)
+
+                st.rerun()
+
+    else:
+        st.session_state.image_available = "no"
+
+    if st.session_state.image_available == "yes":
+        st.success("Image cues are included in this run.")
+        if st.session_state.image_ai_confidence is not None:
+            st.write(f"**Image analysis confidence:** {st.session_state.image_ai_confidence:.0%}")
+        if st.session_state.image_ai_reason:
+            st.write(f"**Image analysis note:** {st.session_state.image_ai_reason}")
+    else:
+        st.info("No valid dog image is currently included. You can continue using profile and behavior context only.")
 
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        st.session_state.visual_mouth = st.selectbox("Mouth / panting visible", ["unknown", "closed mouth", "open mouth / panting"], index=["unknown", "closed mouth", "open mouth / panting"].index(st.session_state.get("visual_mouth", "unknown")), help="Open mouth or visible panting can support recovery, heat, anxiety, or overstimulation depending on context.")
-        st.session_state.visual_posture = st.selectbox("Body posture", ["unknown", "relaxed", "alert", "tense", "crouched"], index=["unknown", "relaxed", "alert", "tense", "crouched"].index(st.session_state.get("visual_posture", "unknown")), help="Tense or crouched posture may increase concern; relaxed posture can be protective.")
+        st.session_state.visual_mouth = st.selectbox("Mouth / panting visible", ["unknown", "closed mouth", "open mouth / panting"], index=["unknown", "closed mouth", "open mouth / panting"].index(st.session_state.visual_mouth), help="Auto-filled by image AI when available; you can override it.")
+        st.session_state.visual_posture = st.selectbox("Body posture", ["unknown", "relaxed", "alert", "tense", "crouched"], index=["unknown", "relaxed", "alert", "tense", "crouched"].index(st.session_state.visual_posture), help="Auto-filled by image AI when available; you can override it.")
 
     with c2:
-        st.session_state.visual_ears = st.selectbox("Ear position", ["unknown", "neutral", "back/pinned"], index=["unknown", "neutral", "back/pinned"].index(st.session_state.get("visual_ears", "unknown")), help="Pinned-back ears can be a stress or uncertainty signal.")
-        st.session_state.visual_tail = st.selectbox("Tail position", ["unknown", "relaxed", "tucked", "high"], index=["unknown", "relaxed", "tucked", "high"].index(st.session_state.get("visual_tail", "unknown")), help="A tucked tail may indicate fear, anxiety, or discomfort.")
+        st.session_state.visual_ears = st.selectbox("Ear position", ["unknown", "neutral", "back/pinned"], index=["unknown", "neutral", "back/pinned"].index(st.session_state.visual_ears), help="Auto-filled by image AI when available; you can override it.")
+        st.session_state.visual_tail = st.selectbox("Tail position", ["unknown", "relaxed", "tucked", "high"], index=["unknown", "relaxed", "tucked", "high"].index(st.session_state.visual_tail), help="Auto-filled by image AI when available; you can override it.")
 
     with c3:
-        st.session_state.visual_eyes = st.selectbox("Eye expression", ["unknown", "relaxed", "wide-eyed / whale eye"], index=["unknown", "relaxed", "wide-eyed / whale eye"].index(st.session_state.get("visual_eyes", "unknown")), help="Wide eyes or whale eye can be a stress-related cue.")
-        st.session_state.visual_hiding = st.selectbox("Hiding / avoidance visible", ["unknown", "yes", "no"], index=["unknown", "yes", "no"].index(st.session_state.get("visual_hiding", "unknown")), help="Hiding or avoidance can increase concern for stress-related behavior.")
+        st.session_state.visual_eyes = st.selectbox("Eye expression", ["unknown", "relaxed", "wide-eyed / whale eye"], index=["unknown", "relaxed", "wide-eyed / whale eye"].index(st.session_state.visual_eyes), help="Auto-filled by image AI when available; you can override it.")
+        st.session_state.visual_hiding = st.selectbox("Hiding / avoidance visible", ["unknown", "yes", "no"], index=["unknown", "yes", "no"].index(st.session_state.visual_hiding), help="Auto-filled by image AI when available; you can override it.")
 
     visuals = [
         st.session_state.visual_mouth,
@@ -693,6 +832,7 @@ elif st.session_state.phase == 3:
 
         set_phase(4)
         st.rerun()
+
 
 # ==================================================
 # PHASE 4
@@ -774,7 +914,7 @@ elif st.session_state.phase == 4:
 
         st.markdown("### Why This Outcome Changed")
         if inputs["image_available"] == "yes":
-            st.success("A dog image was used in this run. The model considered your selected visual cues along with behavior context.")
+            st.success("A dog image was used in this run. The model considered AI-extracted visual cues along with behavior context.")
         else:
             st.warning(
                 "No image was used in this run. The interpretation is based on your dog’s profile and behavior context only. "
@@ -799,7 +939,7 @@ elif st.session_state.phase == 4:
         with compare_col2:
             st.markdown("<div class='kpi'>", unsafe_allow_html=True)
             st.markdown("#### Context + Dog Image Cues")
-            st.write("Profile + context + selected visual cues")
+            st.write("Profile + context + AI-extracted visual cues")
             st.write(f"**Prediction:** {pred.title()}")
             st.write(f"**Confidence:** {adjusted_prob:.0%}")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -815,7 +955,7 @@ elif st.session_state.phase == 4:
                 )
         else:
             st.warning(
-                "Because no dog image was used, both outputs rely mostly on structured context. Uploading a dog image and selecting visible cues can make the interpretation more specific."
+                "Because no dog image was used, both outputs rely mostly on structured context. Uploading a dog image and extracting visible cues can make the interpretation more specific."
             )
 
         st.markdown("### Clear Action Plan")
@@ -884,6 +1024,7 @@ elif st.session_state.phase == 4:
             st.button("Back", on_click=set_phase, args=(3,), use_container_width=True)
         with nav2:
             st.button("Continue to Feedback", type="primary", on_click=set_phase, args=(5,), use_container_width=True)
+
 
 # ==================================================
 # PHASE 5
@@ -986,7 +1127,9 @@ elif st.session_state.phase == 5:
                     "visual_ears",
                     "visual_tail",
                     "visual_eyes",
-                    "visual_hiding"
+                    "visual_hiding",
+                    "image_ai_confidence",
+                    "image_ai_reason"
                 ]:
                     if key in st.session_state:
                         del st.session_state[key]
