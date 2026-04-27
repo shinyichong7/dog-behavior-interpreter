@@ -9,11 +9,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 
-st.set_page_config(
-    page_title="Dog Behavior Interpreter",
-    page_icon="🐶",
-    layout="wide"
-)
+st.set_page_config(page_title="Dog Behavior Interpreter", page_icon="🐶", layout="wide")
 
 # ==================================================
 # CSS
@@ -25,7 +21,6 @@ st.markdown("""
     padding-top: 1.5rem;
     max-width: 1180px;
 }
-
 .disclaimer-card {
     padding: 1rem;
     border-radius: 16px;
@@ -35,14 +30,12 @@ st.markdown("""
     margin-bottom: 1rem;
     font-size: 0.92rem;
 }
-
 .stepper {
     display: flex;
     gap: 8px;
     margin: 12px 0 20px 0;
     flex-wrap: wrap;
 }
-
 .step-active {
     padding: 0.55rem 0.85rem;
     border-radius: 999px;
@@ -51,7 +44,6 @@ st.markdown("""
     font-weight: 700;
     font-size: 0.9rem;
 }
-
 .step-complete {
     padding: 0.55rem 0.85rem;
     border-radius: 999px;
@@ -60,7 +52,6 @@ st.markdown("""
     font-weight: 700;
     font-size: 0.9rem;
 }
-
 .step-inactive {
     padding: 0.55rem 0.85rem;
     border-radius: 999px;
@@ -69,16 +60,6 @@ st.markdown("""
     font-weight: 600;
     font-size: 0.9rem;
 }
-
-.phase-card {
-    padding: 1.25rem;
-    border-radius: 18px;
-    border: 1px solid #E5E7EB;
-    background-color: #FFFFFF;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    margin-bottom: 1rem;
-}
-
 .result-card {
     padding: 1.4rem;
     border-radius: 20px;
@@ -86,7 +67,6 @@ st.markdown("""
     background-color: #F0FDF4;
     margin-bottom: 1rem;
 }
-
 .warning-card {
     padding: 1rem;
     border-radius: 16px;
@@ -94,14 +74,12 @@ st.markdown("""
     background-color: #FFFBEB;
     margin-bottom: 1rem;
 }
-
 .kpi {
     padding: 1rem;
     border-radius: 16px;
     border: 1px solid #E5E7EB;
     background-color: #F9FAFB;
 }
-
 .action-box {
     padding: 1rem;
     border-radius: 16px;
@@ -109,18 +87,12 @@ st.markdown("""
     background-color: #EFF6FF;
     margin-bottom: 0.75rem;
 }
-
 .education-box {
     padding: 1rem;
     border-radius: 16px;
     border: 1px solid #DDD6FE;
     background-color: #F5F3FF;
     margin-bottom: 0.75rem;
-}
-
-.small-muted {
-    color: #6B7280;
-    font-size: 0.9rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -142,7 +114,7 @@ if "feedback_done" not in st.session_state:
     st.session_state.feedback_done = False
 
 # ==================================================
-# DATA GENERATION
+# DATA + MODEL
 # ==================================================
 
 @st.cache_data
@@ -260,11 +232,7 @@ def train_model(df):
 
     model = Pipeline([
         ("prep", preprocessor),
-        ("rf", RandomForestClassifier(
-            n_estimators=220,
-            random_state=42,
-            class_weight="balanced"
-        ))
+        ("rf", RandomForestClassifier(n_estimators=220, random_state=42, class_weight="balanced"))
     ])
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -335,99 +303,39 @@ def recommendation_for(pred):
     return {
         "recovery": {
             "summary": "Likely recovery. Support rest, hydration, and reassessment.",
-            "do_now": [
-                "Offer water.",
-                "Move your dog to a calm, comfortable area.",
-                "Pause additional play, running, or training for now."
-            ],
-            "observe": [
-                "Breathing and posture should gradually normalize.",
-                "Panting should decrease as the dog rests and cools down.",
-                "Energy should return to baseline after recovery."
-            ],
-            "avoid": [
-                "Do not continue intense activity immediately.",
-                "Do not assume panting always means anxiety without considering recent activity or heat."
-            ]
+            "do_now": ["Offer water.", "Move your dog to a calm, comfortable area.", "Pause additional play, running, or training for now."],
+            "observe": ["Breathing and posture should gradually normalize.", "Panting should decrease as the dog rests and cools down.", "Energy should return to baseline after recovery."],
+            "avoid": ["Do not continue intense activity immediately.", "Do not assume panting always means anxiety without considering recent activity or heat."]
         },
         "anxiety": {
             "summary": "Possible anxiety or stress. Reduce triggers and support calm observation.",
-            "do_now": [
-                "Lower noise and stimulation.",
-                "Create distance from the trigger if possible.",
-                "Give your dog space instead of forcing interaction."
-            ],
-            "observe": [
-                "Watch for repeated pacing, hiding, trembling, lip licking, or inability to settle.",
-                "Track whether the behavior improves after the environment becomes calmer."
-            ],
-            "avoid": [
-                "Avoid punishment or forcing exposure.",
-                "Avoid overwhelming the dog with attention if they are trying to retreat."
-            ]
+            "do_now": ["Lower noise and stimulation.", "Create distance from the trigger if possible.", "Give your dog space instead of forcing interaction."],
+            "observe": ["Watch for repeated pacing, hiding, trembling, lip licking, or inability to settle.", "Track whether the behavior improves after the environment becomes calmer."],
+            "avoid": ["Avoid punishment or forcing exposure.", "Avoid overwhelming the dog with attention if they are trying to retreat."]
         },
         "boredom": {
             "summary": "Possible unmet stimulation need. Use low-pressure enrichment.",
-            "do_now": [
-                "Offer a puzzle toy, sniff game, or short training session.",
-                "Try calm engagement before escalating intensity.",
-                "Use a structured activity rather than random excitement."
-            ],
-            "observe": [
-                "Behavior should decrease after mental stimulation.",
-                "Toy-seeking or pacing may reduce when the dog has an appropriate outlet."
-            ],
-            "avoid": [
-                "Avoid only using high-arousal play if the dog is already restless.",
-                "Avoid reinforcing demand behavior every time without structure."
-            ]
+            "do_now": ["Offer a puzzle toy, sniff game, or short training session.", "Try calm engagement before escalating intensity.", "Use a structured activity rather than random excitement."],
+            "observe": ["Behavior should decrease after mental stimulation.", "Toy-seeking or pacing may reduce when the dog has an appropriate outlet."],
+            "avoid": ["Avoid only using high-arousal play if the dog is already restless.", "Avoid reinforcing demand behavior every time without structure."]
         },
         "overstimulation": {
             "summary": "Possible overstimulation. Pause activity and help your dog decompress.",
-            "do_now": [
-                "Stop exciting play or training.",
-                "Move to a quieter area.",
-                "Use calm routines and allow decompression."
-            ],
-            "observe": [
-                "Look for reduction in pacing, panting, jumping, or inability to settle.",
-                "Reassess after 10–15 minutes of calm."
-            ],
-            "avoid": [
-                "Avoid more chase, fetch, or intense play immediately.",
-                "Avoid adding more stimulation to an already aroused state."
-            ]
+            "do_now": ["Stop exciting play or training.", "Move to a quieter area.", "Use calm routines and allow decompression."],
+            "observe": ["Look for reduction in pacing, panting, jumping, or inability to settle.", "Reassess after 10–15 minutes of calm."],
+            "avoid": ["Avoid more chase, fetch, or intense play immediately.", "Avoid adding more stimulation to an already aroused state."]
         },
         "neutral": {
             "summary": "No strong concern detected. Continue observing without over-intervening.",
-            "do_now": [
-                "Let your dog continue resting or behaving normally.",
-                "Monitor for changes."
-            ],
-            "observe": [
-                "Look for sudden shifts in posture, breathing, responsiveness, or appetite.",
-                "Reassess if the behavior becomes prolonged or unusual."
-            ],
-            "avoid": [
-                "Avoid unnecessary intervention if the dog appears relaxed.",
-                "Avoid assuming every behavior requires correction."
-            ]
+            "do_now": ["Let your dog continue resting or behaving normally.", "Monitor for changes."],
+            "observe": ["Look for sudden shifts in posture, breathing, responsiveness, or appetite.", "Reassess if the behavior becomes prolonged or unusual."],
+            "avoid": ["Avoid unnecessary intervention if the dog appears relaxed.", "Avoid assuming every behavior requires correction."]
         },
         "needs observation": {
             "summary": "Unclear or potentially elevated concern. Observe closely and consider professional guidance if it persists.",
-            "do_now": [
-                "Reduce activity and keep the dog comfortable.",
-                "Monitor breathing, posture, appetite, responsiveness, and duration.",
-                "Document what you are seeing."
-            ],
-            "observe": [
-                "Watch whether the behavior resolves or escalates.",
-                "Track whether it repeats under similar conditions."
-            ],
-            "avoid": [
-                "Avoid ignoring persistent or unusual behavior.",
-                "Avoid relying on this prototype for medical decisions."
-            ]
+            "do_now": ["Reduce activity and keep the dog comfortable.", "Monitor breathing, posture, appetite, responsiveness, and duration.", "Document what you are seeing."],
+            "observe": ["Watch whether the behavior resolves or escalates.", "Track whether it repeats under similar conditions."],
+            "avoid": ["Avoid ignoring persistent or unusual behavior.", "Avoid relying on this prototype for medical decisions."]
         }
     }[pred]
 
@@ -445,7 +353,7 @@ def build_reasoning(inputs, image_available, completeness):
     if image_available == "yes":
         reasons.append("Image-assisted cues were included, so the prediction uses both owner context and visible body-language signals.")
     else:
-        reasons.append("No image was uploaded, so the prediction relies more heavily on owner-entered context and has less visual support.")
+        reasons.append("No image was used in this run. The interpretation is based on profile and behavior context only.")
 
     if inputs["behavior"] == "panting":
         reasons.append("Panting can mean recovery, heat, anxiety, or overstimulation, so context is important.")
@@ -558,6 +466,28 @@ with st.sidebar:
     st.metric("Weighted Precision", f"{metrics['precision']:.0%}")
     st.metric("Weighted Recall", f"{metrics['recall']:.0%}")
 
+    with st.expander("How to read this result", expanded=True):
+        current_image_status = None
+
+        if st.session_state.get("prediction_result") is not None:
+            current_image_status = st.session_state.prediction_result["inputs"].get("image_available")
+
+        if current_image_status == "yes":
+            st.success(
+                "Image cues were used in this interpretation. The model considered visible body-language cues "
+                "such as mouth position, posture, ears, tail, eyes, and hiding/avoidance."
+            )
+        elif current_image_status == "no":
+            st.warning(
+                "No image was used in this run. This result is based on your dog’s profile and behavior context only. "
+                "Because no dog image was uploaded, the system could not use visible body-language cues like posture, "
+                "ears, tail, or eye expression. Adding a dog image may improve interpretation quality."
+            )
+        else:
+            st.info(
+                "Complete the interpreter to see whether the final result uses image-assisted visual cues or context only."
+            )
+
     with st.expander("Data transparency"):
         st.write(
             """
@@ -570,7 +500,7 @@ with st.sidebar:
         )
 
 # ==================================================
-# HEADER + DYNAMIC PHASE PILLS
+# HEADER
 # ==================================================
 
 st.title("🐶 Dog Behavior Interpreter")
@@ -610,49 +540,20 @@ if st.session_state.phase == 1:
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        st.session_state.dog_name = st.text_input(
-            "Dog name",
-            value=st.session_state.get("dog_name", "Sadie"),
-            help="Used to personalize the output only."
-        )
-        st.session_state.age_group = st.selectbox(
-            "Age group",
-            ["puppy", "adult", "senior"],
-            index=["puppy", "adult", "senior"].index(st.session_state.get("age_group", "adult")),
-            help="Age can change how cautious the system should be about persistent behavior."
-        )
+        st.session_state.dog_name = st.text_input("Dog name", value=st.session_state.get("dog_name", "Sadie"), help="Used to personalize the output only.")
+        st.session_state.age_group = st.selectbox("Age group", ["puppy", "adult", "senior"], index=["puppy", "adult", "senior"].index(st.session_state.get("age_group", "adult")), help="Age can change how cautious the system should be about persistent behavior.")
 
     with c2:
-        st.session_state.size = st.selectbox(
-            "Size category",
-            ["small", "medium", "large"],
-            index=["small", "medium", "large"].index(st.session_state.get("size", "medium")),
-            help="Size is included as a general dog profile signal."
-        )
-        st.session_state.energy = st.selectbox(
-            "Typical energy level",
-            ["low", "moderate", "high"],
-            index=["low", "moderate", "high"].index(st.session_state.get("energy", "high")),
-            help="High-energy dogs may show pacing or toy-seeking when stimulation needs are unmet."
-        )
+        st.session_state.size = st.selectbox("Size category", ["small", "medium", "large"], index=["small", "medium", "large"].index(st.session_state.get("size", "medium")), help="Size is included as a general dog profile signal.")
+        st.session_state.energy = st.selectbox("Typical energy level", ["low", "moderate", "high"], index=["low", "moderate", "high"].index(st.session_state.get("energy", "high")), help="High-energy dogs may show pacing or toy-seeking when stimulation needs are unmet.")
 
     with c3:
-        st.session_state.sensitivity = st.selectbox(
-            "Known stress sensitivity",
-            ["low", "moderate", "high"],
-            index=["low", "moderate", "high"].index(st.session_state.get("sensitivity", "moderate")),
-            help="Use this if your dog is reactive to noise, strangers, separation, or new environments."
-        )
-        st.session_state.assumption = st.selectbox(
-            "Your initial assumption",
-            ["unsure", "anxiety", "boredom", "overstimulation", "recovery"],
-            index=["unsure", "anxiety", "boredom", "overstimulation", "recovery"].index(
-                st.session_state.get("assumption", "unsure")
-            ),
-            help="This becomes a baseline so the prototype can compare owner interpretation to AI interpretation."
-        )
+        st.session_state.sensitivity = st.selectbox("Known stress sensitivity", ["low", "moderate", "high"], index=["low", "moderate", "high"].index(st.session_state.get("sensitivity", "moderate")), help="Use this if your dog is reactive to noise, strangers, separation, or new environments.")
+        st.session_state.assumption = st.selectbox("Your initial assumption", ["unsure", "anxiety", "boredom", "overstimulation", "recovery"], index=["unsure", "anxiety", "boredom", "overstimulation", "recovery"].index(st.session_state.get("assumption", "unsure")), help="This becomes a baseline so the prototype can compare owner interpretation to AI interpretation.")
 
-    st.button("Next: Behavior Context", type="primary", on_click=set_phase, args=(2,))
+    nav1, nav2, spacer = st.columns([1, 1, 3])
+    with nav1:
+        st.button("Next: Context", type="primary", on_click=set_phase, args=(2,), use_container_width=True)
 
 # ==================================================
 # PHASE 2
@@ -664,40 +565,18 @@ elif st.session_state.phase == 2:
     c1, c2 = st.columns(2)
 
     with c1:
-        st.session_state.behavior = st.selectbox(
-            "Observed behavior",
-            ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"],
-            index=["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"].index(
-                st.session_state.get("behavior", "panting")
-            ),
-            help="Choose the main behavior you are trying to interpret."
-        )
-        st.session_state.activity = st.selectbox(
-            "Recent activity",
-            ["none", "low", "high"],
-            index=["none", "low", "high"].index(st.session_state.get("activity", "none")),
-            help="Recent activity helps distinguish recovery from anxiety or overstimulation."
-        )
+        st.session_state.behavior = st.selectbox("Observed behavior", ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"], index=["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"].index(st.session_state.get("behavior", "panting")), help="Choose the main behavior you are trying to interpret.")
+        st.session_state.activity = st.selectbox("Recent activity", ["none", "low", "high"], index=["none", "low", "high"].index(st.session_state.get("activity", "none")), help="Recent activity helps distinguish recovery from anxiety or overstimulation.")
 
     with c2:
-        st.session_state.environment = st.selectbox(
-            "Environment",
-            ["indoor", "outdoor", "warm", "noisy"],
-            index=["indoor", "outdoor", "warm", "noisy"].index(st.session_state.get("environment", "indoor")),
-            help="Context matters: heat, noise, or unfamiliar settings can change interpretation."
-        )
-        st.session_state.duration = st.selectbox(
-            "Duration",
-            ["short", "medium", "long"],
-            index=["short", "medium", "long"].index(st.session_state.get("duration", "short")),
-            help="Longer duration raises concern because the behavior is less likely to be a brief normal response."
-        )
+        st.session_state.environment = st.selectbox("Environment", ["indoor", "outdoor", "warm", "noisy"], index=["indoor", "outdoor", "warm", "noisy"].index(st.session_state.get("environment", "indoor")), help="Context matters: heat, noise, or unfamiliar settings can change interpretation.")
+        st.session_state.duration = st.selectbox("Duration", ["short", "medium", "long"], index=["short", "medium", "long"].index(st.session_state.get("duration", "short")), help="Longer duration raises concern because the behavior is less likely to be a brief normal response.")
 
-    b1, b2 = st.columns([1, 1])
-    with b1:
-        st.button("Back: Dog Profile", on_click=set_phase, args=(1,))
-    with b2:
-        st.button("Next: Visual Cues", type="primary", on_click=set_phase, args=(3,))
+    nav1, nav2, spacer = st.columns([1, 1, 3])
+    with nav1:
+        st.button("Back", on_click=set_phase, args=(1,), use_container_width=True)
+    with nav2:
+        st.button("Next: Visual Cues", type="primary", on_click=set_phase, args=(3,), use_container_width=True)
 
 # ==================================================
 # PHASE 3
@@ -707,73 +586,44 @@ elif st.session_state.phase == 3:
     st.markdown("## Phase 3 — Image-Assisted Visual Cue Review")
 
     st.write(
-        "Upload an image if available, then select visible cues. These cues are used as model features and can change the interpretation."
+        "Upload a dog image if available, then select visible cues. These cues are used as model features and can change the interpretation."
     )
 
-    image = st.file_uploader(
-        "Upload dog image",
-        type=["jpg", "jpeg", "png"],
-        help="The image supports manual visual cue extraction. It is not automatically analyzed by computer vision."
-    )
+    image = st.file_uploader("Upload dog image", type=["jpg", "jpeg", "png"], help="Only dog images are accepted. The image supports manual visual cue extraction and is not automatically analyzed by computer vision.")
 
-    st.session_state.image_available = "yes" if image else "no"
+    image_content = "no image uploaded"
+    invalid_image = False
 
     if image:
         st.image(image, caption="Uploaded image for visual cue review", width=350)
 
+        image_content = st.selectbox(
+            "What does this image show?",
+            ["dog", "human / not a dog", "other / unclear"],
+            help="Guardrail: this prototype only accepts dog images. If the image does not show a dog, it cannot be used for visual cue extraction."
+        )
+
+        if image_content != "dog":
+            invalid_image = True
+            st.error(
+                "Invalid image for this prototype. Please upload an image that clearly shows a dog, or remove the image and continue using context only."
+            )
+
+    st.session_state.image_available = "yes" if image and image_content == "dog" else "no"
+
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        st.session_state.visual_mouth = st.selectbox(
-            "Mouth / panting visible",
-            ["unknown", "closed mouth", "open mouth / panting"],
-            index=["unknown", "closed mouth", "open mouth / panting"].index(
-                st.session_state.get("visual_mouth", "unknown")
-            ),
-            help="Open mouth or visible panting can support recovery, heat, anxiety, or overstimulation depending on context."
-        )
-        st.session_state.visual_posture = st.selectbox(
-            "Body posture",
-            ["unknown", "relaxed", "alert", "tense", "crouched"],
-            index=["unknown", "relaxed", "alert", "tense", "crouched"].index(
-                st.session_state.get("visual_posture", "unknown")
-            ),
-            help="Tense or crouched posture may increase concern; relaxed posture can be protective."
-        )
+        st.session_state.visual_mouth = st.selectbox("Mouth / panting visible", ["unknown", "closed mouth", "open mouth / panting"], index=["unknown", "closed mouth", "open mouth / panting"].index(st.session_state.get("visual_mouth", "unknown")), help="Open mouth or visible panting can support recovery, heat, anxiety, or overstimulation depending on context.")
+        st.session_state.visual_posture = st.selectbox("Body posture", ["unknown", "relaxed", "alert", "tense", "crouched"], index=["unknown", "relaxed", "alert", "tense", "crouched"].index(st.session_state.get("visual_posture", "unknown")), help="Tense or crouched posture may increase concern; relaxed posture can be protective.")
 
     with c2:
-        st.session_state.visual_ears = st.selectbox(
-            "Ear position",
-            ["unknown", "neutral", "back/pinned"],
-            index=["unknown", "neutral", "back/pinned"].index(
-                st.session_state.get("visual_ears", "unknown")
-            ),
-            help="Pinned-back ears can be a stress or uncertainty signal."
-        )
-        st.session_state.visual_tail = st.selectbox(
-            "Tail position",
-            ["unknown", "relaxed", "tucked", "high"],
-            index=["unknown", "relaxed", "tucked", "high"].index(
-                st.session_state.get("visual_tail", "unknown")
-            ),
-            help="A tucked tail may indicate fear, anxiety, or discomfort."
-        )
+        st.session_state.visual_ears = st.selectbox("Ear position", ["unknown", "neutral", "back/pinned"], index=["unknown", "neutral", "back/pinned"].index(st.session_state.get("visual_ears", "unknown")), help="Pinned-back ears can be a stress or uncertainty signal.")
+        st.session_state.visual_tail = st.selectbox("Tail position", ["unknown", "relaxed", "tucked", "high"], index=["unknown", "relaxed", "tucked", "high"].index(st.session_state.get("visual_tail", "unknown")), help="A tucked tail may indicate fear, anxiety, or discomfort.")
 
     with c3:
-        st.session_state.visual_eyes = st.selectbox(
-            "Eye expression",
-            ["unknown", "relaxed", "wide-eyed / whale eye"],
-            index=["unknown", "relaxed", "wide-eyed / whale eye"].index(
-                st.session_state.get("visual_eyes", "unknown")
-            ),
-            help="Wide eyes or whale eye can be a stress-related cue."
-        )
-        st.session_state.visual_hiding = st.selectbox(
-            "Hiding / avoidance visible",
-            ["unknown", "yes", "no"],
-            index=["unknown", "yes", "no"].index(st.session_state.get("visual_hiding", "unknown")),
-            help="Hiding or avoidance can increase concern for stress-related behavior."
-        )
+        st.session_state.visual_eyes = st.selectbox("Eye expression", ["unknown", "relaxed", "wide-eyed / whale eye"], index=["unknown", "relaxed", "wide-eyed / whale eye"].index(st.session_state.get("visual_eyes", "unknown")), help="Wide eyes or whale eye can be a stress-related cue.")
+        st.session_state.visual_hiding = st.selectbox("Hiding / avoidance visible", ["unknown", "yes", "no"], index=["unknown", "yes", "no"].index(st.session_state.get("visual_hiding", "unknown")), help="Hiding or avoidance can increase concern for stress-related behavior.")
 
     visuals = [
         st.session_state.visual_mouth,
@@ -787,62 +637,62 @@ elif st.session_state.phase == 3:
     completeness = visual_cue_completeness(st.session_state.image_available, *visuals)
 
     st.markdown("### Input Quality Preview")
-    st.write(f"**Image uploaded:** {'Yes' if st.session_state.image_available == 'yes' else 'No'}")
+    st.write(f"**Dog image used:** {'Yes' if st.session_state.image_available == 'yes' else 'No'}")
     st.write(f"**Visual cue completeness:** {quality_label(completeness)}")
     st.progress(completeness)
 
-    b1, b2 = st.columns([1, 1])
-    with b1:
-        st.button("Back: Behavior Context", on_click=set_phase, args=(2,))
-    with b2:
-        if st.button("Analyze Behavior", type="primary"):
-            inputs = {
-                "behavior": st.session_state.behavior,
-                "activity": st.session_state.activity,
-                "environment": st.session_state.environment,
-                "duration": st.session_state.duration,
-                "assumption": st.session_state.assumption,
-                "age_group": st.session_state.age_group,
-                "size": st.session_state.size,
-                "energy": st.session_state.energy,
-                "sensitivity": st.session_state.sensitivity,
-                "image_available": st.session_state.image_available,
-                "visual_mouth": st.session_state.visual_mouth,
-                "visual_posture": st.session_state.visual_posture,
-                "visual_ears": st.session_state.visual_ears,
-                "visual_tail": st.session_state.visual_tail,
-                "visual_eyes": st.session_state.visual_eyes,
-                "visual_hiding": st.session_state.visual_hiding
-            }
+    nav1, nav2, spacer = st.columns([1, 1, 3])
+    with nav1:
+        st.button("Back", on_click=set_phase, args=(2,), use_container_width=True)
 
-            input_df = pd.DataFrame([inputs])
-            pred = model.predict(input_df)[0]
-            probs = model.predict_proba(input_df)[0]
-            classes = model.named_steps["rf"].classes_
+    with nav2:
+        analyze_clicked = st.button("Analyze", type="primary", use_container_width=True, disabled=invalid_image)
 
-            prob_df = pd.DataFrame({
-                "Behavior State": classes,
-                "Probability": probs
-            }).sort_values("Probability", ascending=False)
+    if analyze_clicked:
+        inputs = {
+            "behavior": st.session_state.behavior,
+            "activity": st.session_state.activity,
+            "environment": st.session_state.environment,
+            "duration": st.session_state.duration,
+            "assumption": st.session_state.assumption,
+            "age_group": st.session_state.age_group,
+            "size": st.session_state.size,
+            "energy": st.session_state.energy,
+            "sensitivity": st.session_state.sensitivity,
+            "image_available": st.session_state.image_available,
+            "visual_mouth": st.session_state.visual_mouth,
+            "visual_posture": st.session_state.visual_posture,
+            "visual_ears": st.session_state.visual_ears,
+            "visual_tail": st.session_state.visual_tail,
+            "visual_eyes": st.session_state.visual_eyes,
+            "visual_hiding": st.session_state.visual_hiding
+        }
 
-            base_prob = float(prob_df.iloc[0]["Probability"])
-            adjusted_prob = confidence_adjustment(base_prob, completeness)
-            second_state = prob_df.iloc[1]["Behavior State"]
-            second_prob = float(prob_df.iloc[1]["Probability"])
+        input_df = pd.DataFrame([inputs])
+        pred = model.predict(input_df)[0]
+        probs = model.predict_proba(input_df)[0]
+        classes = model.named_steps["rf"].classes_
 
-            st.session_state.prediction_result = {
-                "inputs": inputs,
-                "pred": pred,
-                "prob_df": prob_df,
-                "base_prob": base_prob,
-                "adjusted_prob": adjusted_prob,
-                "second_state": second_state,
-                "second_prob": second_prob,
-                "completeness": completeness
-            }
+        prob_df = pd.DataFrame({"Behavior State": classes, "Probability": probs}).sort_values("Probability", ascending=False)
 
-            set_phase(4)
-            st.rerun()
+        base_prob = float(prob_df.iloc[0]["Probability"])
+        adjusted_prob = confidence_adjustment(base_prob, completeness)
+        second_state = prob_df.iloc[1]["Behavior State"]
+        second_prob = float(prob_df.iloc[1]["Probability"])
+
+        st.session_state.prediction_result = {
+            "inputs": inputs,
+            "pred": pred,
+            "prob_df": prob_df,
+            "base_prob": base_prob,
+            "adjusted_prob": adjusted_prob,
+            "second_state": second_state,
+            "second_prob": second_prob,
+            "completeness": completeness
+        }
+
+        set_phase(4)
+        st.rerun()
 
 # ==================================================
 # PHASE 4
@@ -868,7 +718,6 @@ elif st.session_state.phase == 4:
         risk, protective, missing = factors(inputs)
         rec = recommendation_for(pred)
 
-        # Context-only comparison
         context_only_inputs = inputs.copy()
         context_only_inputs["image_available"] = "no"
         context_only_inputs["visual_mouth"] = "unknown"
@@ -883,11 +732,7 @@ elif st.session_state.phase == 4:
         context_only_probs = model.predict_proba(context_only_df)[0]
         context_only_classes = model.named_steps["rf"].classes_
 
-        context_only_prob_df = pd.DataFrame({
-            "Behavior State": context_only_classes,
-            "Probability": context_only_probs
-        }).sort_values("Probability", ascending=False)
-
+        context_only_prob_df = pd.DataFrame({"Behavior State": context_only_classes, "Probability": context_only_probs}).sort_values("Probability", ascending=False)
         context_only_confidence = float(context_only_prob_df.iloc[0]["Probability"])
 
         r1, r2, r3 = st.columns([1.1, 0.9, 0.9])
@@ -929,9 +774,12 @@ elif st.session_state.phase == 4:
 
         st.markdown("### Why This Outcome Changed")
         if inputs["image_available"] == "yes":
-            st.success("Image-assisted visual cues were included, so the model used both context and visible body-language signals.")
+            st.success("A dog image was used in this run. The model considered your selected visual cues along with behavior context.")
         else:
-            st.warning("No image was uploaded. The model relied on profile and behavior context only, which reduces visual certainty.")
+            st.warning(
+                "No image was used in this run. The interpretation is based on your dog’s profile and behavior context only. "
+                "Because no dog image was uploaded, the system could not use visible body-language cues such as posture, ears, tail, or eye expression."
+            )
 
         for reason in build_reasoning(inputs, inputs["image_available"], completeness):
             st.write(f"- {reason}")
@@ -950,7 +798,7 @@ elif st.session_state.phase == 4:
 
         with compare_col2:
             st.markdown("<div class='kpi'>", unsafe_allow_html=True)
-            st.markdown("#### Context + Image-Assisted Cues")
+            st.markdown("#### Context + Dog Image Cues")
             st.write("Profile + context + selected visual cues")
             st.write(f"**Prediction:** {pred.title()}")
             st.write(f"**Confidence:** {adjusted_prob:.0%}")
@@ -959,18 +807,15 @@ elif st.session_state.phase == 4:
         if inputs["image_available"] == "yes":
             if context_only_pred != pred:
                 st.success(
-                    "The image-assisted visual cues changed the predicted state. "
-                    "This shows that visible body-language inputs are contributing to the outcome."
+                    "The dog image cues changed the predicted state. This shows that visible body-language inputs are contributing to the outcome."
                 )
             else:
                 st.info(
-                    "The image-assisted visual cues did not change the top predicted state, "
-                    "but they may still affect confidence and explanation quality."
+                    "The dog image cues did not change the top predicted state, but they may still affect confidence and explanation quality."
                 )
         else:
             st.warning(
-                "No image was uploaded, so the image-assisted comparison uses unknown visual cues. "
-                "The system is relying primarily on structured context."
+                "Because no dog image was used, both outputs rely mostly on structured context. Uploading a dog image and selecting visible cues can make the interpretation more specific."
             )
 
         st.markdown("### Clear Action Plan")
@@ -1034,11 +879,11 @@ elif st.session_state.phase == 4:
             for item in escalation_guidance():
                 st.write(f"- {item}")
 
-        b1, b2 = st.columns([1, 1])
-        with b1:
-            st.button("Back: Visual Cues", on_click=set_phase, args=(3,))
-        with b2:
-            st.button("Continue to Feedback", type="primary", on_click=set_phase, args=(5,))
+        nav1, nav2, spacer = st.columns([1, 1, 3])
+        with nav1:
+            st.button("Back", on_click=set_phase, args=(3,), use_container_width=True)
+        with nav2:
+            st.button("Continue to Feedback", type="primary", on_click=set_phase, args=(5,), use_container_width=True)
 
 # ==================================================
 # PHASE 5
@@ -1126,11 +971,11 @@ elif st.session_state.phase == 5:
             with st.expander("Feedback record"):
                 st.dataframe(feedback_df)
 
-        b1, b2 = st.columns([1, 1])
-        with b1:
-            st.button("Back: Interpretation", on_click=set_phase, args=(4,))
-        with b2:
-            if st.button("Start New Interpretation"):
+        nav1, nav2, spacer = st.columns([1, 1, 3])
+        with nav1:
+            st.button("Back", on_click=set_phase, args=(4,), use_container_width=True)
+        with nav2:
+            if st.button("Start New", use_container_width=True):
                 for key in [
                     "prediction_result",
                     "feedback_done",
