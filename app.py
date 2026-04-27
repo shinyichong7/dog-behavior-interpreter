@@ -9,17 +9,64 @@ from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 
-# -----------------------------
-# Page Setup
-# -----------------------------
-st.set_page_config(page_title="Dog Behavior Interpreter", page_icon="🐶", layout="centered")
+st.set_page_config(
+    page_title="Dog Behavior Interpreter",
+    page_icon="🐶",
+    layout="wide"
+)
 
-st.title("🐶 Dog Behavior Interpreter")
-st.caption("AI prototype for interpreting short-duration dog behavior using structured context inputs.")
+st.markdown("""
+<style>
+.main .block-container {
+    padding-top: 2rem;
+    max-width: 1100px;
+}
+.card {
+    padding: 1.2rem;
+    border-radius: 18px;
+    border: 1px solid #E5E7EB;
+    background-color: #FFFFFF;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    margin-bottom: 1rem;
+}
+.result-card {
+    padding: 1.4rem;
+    border-radius: 20px;
+    border: 1px solid #D1FAE5;
+    background-color: #F0FDF4;
+    margin-bottom: 1rem;
+}
+.warning-card {
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px solid #FDE68A;
+    background-color: #FFFBEB;
+}
+.small-muted {
+    color: #6B7280;
+    font-size: 0.9rem;
+}
+.step-pill {
+    display: inline-block;
+    padding: 0.4rem 0.75rem;
+    border-radius: 999px;
+    background-color: #EEF2FF;
+    color: #3730A3;
+    font-weight: 600;
+    margin-right: 0.4rem;
+    margin-bottom: 0.4rem;
+}
+.metric-label {
+    color: #6B7280;
+    font-size: 0.85rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # -----------------------------
-# Synthetic Data
+# Data + Model
 # -----------------------------
+@st.cache_data
 def generate_data(n=900):
     np.random.seed(42)
 
@@ -46,7 +93,6 @@ def generate_data(n=900):
         en = np.random.choice(energy)
         sens = np.random.choice(sensitivity)
 
-        # Prototype labeling logic
         if b == "panting" and (a == "high" or e == "warm") and d in ["short", "medium"]:
             label = "recovery"
         elif b in ["pacing", "whining", "hiding"] and e == "noisy":
@@ -84,31 +130,40 @@ def generate_data(n=900):
 
     return pd.DataFrame(rows)
 
+@st.cache_resource
+def train_model(df):
+    X = df.drop("label", axis=1)
+    y = df["label"]
+
+    preprocessor = ColumnTransformer([
+        ("cat", OneHotEncoder(handle_unknown="ignore"), X.columns)
+    ])
+
+    model = Pipeline([
+        ("prep", preprocessor),
+        ("rf", RandomForestClassifier(n_estimators=175, random_state=42, class_weight="balanced"))
+    ])
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    metrics = {
+        "accuracy": accuracy_score(y_test, y_pred),
+        "precision": precision_score(y_test, y_pred, average="weighted", zero_division=0),
+        "recall": recall_score(y_test, y_pred, average="weighted", zero_division=0)
+    }
+
+    return model, metrics
+
 df = generate_data()
+model, metrics = train_model(df)
 
 # -----------------------------
-# Model
-# -----------------------------
-X = df.drop("label", axis=1)
-y = df["label"]
-
-preprocessor = ColumnTransformer([
-    ("cat", OneHotEncoder(handle_unknown="ignore"), X.columns)
-])
-
-model = Pipeline([
-    ("prep", preprocessor),
-    ("rf", RandomForestClassifier(n_estimators=175, random_state=42, class_weight="balanced"))
-])
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
-
-model.fit(X_train, y_train)
-
-# -----------------------------
-# Helper Functions
+# Helper functions
 # -----------------------------
 def confidence_label(prob):
     if prob >= 0.75:
@@ -117,31 +172,38 @@ def confidence_label(prob):
         return "Moderate confidence"
     return "Low confidence"
 
-def build_reasoning(pred, behavior, activity, environment, duration, age_group, energy, sensitivity):
+def confidence_color(prob):
+    if prob >= 0.75:
+        return "🟢"
+    elif prob >= 0.55:
+        return "🟡"
+    return "🔴"
+
+def build_reasoning(behavior, activity, environment, duration, age_group, energy, sensitivity):
     reasons = []
 
     if behavior == "panting":
-        reasons.append("Panting is ambiguous and can reflect recovery, heat, anxiety, or overstimulation.")
+        reasons.append("Panting is ambiguous and may reflect recovery, heat, anxiety, or overstimulation.")
     if behavior == "pacing":
-        reasons.append("Pacing can indicate anxiety, boredom, anticipation, or excess arousal.")
+        reasons.append("Pacing may indicate anxiety, boredom, anticipation, or excess arousal.")
     if behavior == "whining":
-        reasons.append("Whining can signal stress, attention-seeking, unmet needs, or discomfort.")
+        reasons.append("Whining may signal stress, attention-seeking, unmet needs, or discomfort.")
     if behavior == "hiding":
         reasons.append("Hiding is often associated with avoidance, fear, stress, or a need for space.")
     if behavior == "toy-seeking":
         reasons.append("Toy-seeking often suggests a desire for interaction, enrichment, or play.")
     if behavior == "resting":
-        reasons.append("Resting generally lowers concern unless paired with unusual context or prolonged change.")
+        reasons.append("Resting generally lowers concern unless paired with unusual context or sudden change.")
 
     if activity == "high":
         reasons.append("Recent high activity increases the likelihood of recovery or overstimulation.")
     elif activity == "none":
-        reasons.append("No recent activity makes recovery less likely and increases the relevance of boredom or stress signals.")
+        reasons.append("No recent activity makes recovery less likely and increases the relevance of boredom or stress.")
 
     if environment == "warm":
-        reasons.append("A warm environment increases the likelihood that panting is related to thermoregulation.")
+        reasons.append("Warm conditions increase the likelihood that panting is related to thermoregulation.")
     if environment == "noisy":
-        reasons.append("A noisy environment can increase stress sensitivity and anxiety-related behavior.")
+        reasons.append("Noise can increase stress sensitivity and anxiety-related behavior.")
 
     if duration == "long":
         reasons.append("Longer duration raises concern because repeated behavior is less likely to be a brief normal response.")
@@ -149,14 +211,11 @@ def build_reasoning(pred, behavior, activity, environment, duration, age_group, 
         reasons.append("Short duration lowers concern and may indicate a temporary state.")
 
     if age_group == "senior":
-        reasons.append("Senior dogs may require more caution when behavior persists or changes suddenly.")
+        reasons.append("Senior dogs require more caution when behavior persists or changes suddenly.")
     if energy == "high":
-        reasons.append("High-energy dogs may show pacing or toy-seeking when stimulation needs are unmet.")
+        reasons.append("High-energy dogs may pace or seek toys when stimulation needs are unmet.")
     if sensitivity == "high":
-        reasons.append("High sensitivity increases the relevance of anxiety or environmental triggers.")
-
-    if not reasons:
-        reasons.append("The prediction is based on the combined behavior and context pattern.")
+        reasons.append("High stress sensitivity increases the relevance of anxiety or environmental triggers.")
 
     return reasons
 
@@ -181,15 +240,15 @@ def risk_and_protective_factors(behavior, activity, environment, duration, age_g
         protective.append("Panting after high activity can indicate normal recovery")
     if duration == "short":
         protective.append("Short duration")
-    if environment in ["indoor", "outdoor"] and environment != "noisy":
-        protective.append("No obvious environmental stressor selected")
+    if environment in ["indoor", "outdoor"]:
+        protective.append("No obvious heat/noise trigger selected")
     if behavior == "resting":
         protective.append("Resting is generally neutral")
     if sensitivity in ["low", "moderate"]:
         protective.append(f"{sensitivity.title()} stress sensitivity")
 
     if not risk:
-        risk.append("No major risk factors identified from selected inputs")
+        risk.append("No major risk factors identified")
     if not protective:
         protective.append("Limited protective context provided")
 
@@ -199,51 +258,27 @@ def recommendation_for(pred):
     recs = {
         "recovery": {
             "summary": "Provide water, allow rest, and reassess in 10–15 minutes.",
-            "steps": [
-                "Offer water.",
-                "Move to a calm, comfortable area.",
-                "Avoid more intense activity until breathing and posture normalize."
-            ]
+            "steps": ["Offer water.", "Move to a calm area.", "Avoid more intense activity until breathing and posture normalize."]
         },
         "anxiety": {
             "summary": "Reduce stimuli and observe for additional stress signals.",
-            "steps": [
-                "Lower noise and environmental stimulation.",
-                "Give space rather than forcing interaction.",
-                "Watch for repeated pacing, hiding, trembling, or refusal to settle."
-            ]
+            "steps": ["Lower noise and stimulation.", "Give space rather than forcing interaction.", "Watch for repeated pacing, hiding, trembling, or inability to settle."]
         },
         "boredom": {
             "summary": "Offer enrichment, light play, or a short training activity.",
-            "steps": [
-                "Try a puzzle toy, sniff game, or short training session.",
-                "Keep the activity low-pressure.",
-                "Reassess whether the behavior decreases afterward."
-            ]
+            "steps": ["Try a puzzle toy, sniff game, or short training session.", "Keep the activity low-pressure.", "Reassess whether behavior decreases afterward."]
         },
         "overstimulation": {
             "summary": "Pause activity and create a calmer environment.",
-            "steps": [
-                "Stop exciting play or activity.",
-                "Move to a quiet space.",
-                "Use calm routines and let the dog decompress."
-            ]
+            "steps": ["Stop exciting play.", "Move to a quiet space.", "Use calm routines and let the dog decompress."]
         },
         "neutral": {
             "summary": "Continue observing. No immediate intervention appears necessary.",
-            "steps": [
-                "Monitor for changes.",
-                "Avoid over-intervening if the dog appears relaxed.",
-                "Reassess if behavior changes or persists."
-            ]
+            "steps": ["Monitor for changes.", "Avoid over-intervening if the dog appears relaxed.", "Reassess if behavior changes or persists."]
         },
         "needs observation": {
             "summary": "Observe closely and consider professional guidance if behavior persists.",
-            "steps": [
-                "Monitor duration and intensity.",
-                "Look for changes in breathing, posture, appetite, or responsiveness.",
-                "Contact a veterinarian or trainer if the behavior is unusual or persistent."
-            ]
+            "steps": ["Monitor duration and intensity.", "Look for changes in breathing, posture, appetite, or responsiveness.", "Contact a veterinarian or trainer if unusual or persistent."]
         }
     }
     return recs[pred]
@@ -256,54 +291,104 @@ def escalation_guidance():
     ]
 
 # -----------------------------
-# Sidebar Metrics
+# Header
 # -----------------------------
-y_pred = model.predict(X_test)
+left, right = st.columns([2, 1])
 
-acc = accuracy_score(y_test, y_pred)
-prec = precision_score(y_test, y_pred, average="weighted", zero_division=0)
-rec = recall_score(y_test, y_pred, average="weighted", zero_division=0)
-
-st.sidebar.header("Prototype Model Metrics")
-st.sidebar.metric("Accuracy", f"{acc:.0%}")
-st.sidebar.metric("Weighted Precision", f"{prec:.0%}")
-st.sidebar.metric("Weighted Recall", f"{rec:.0%}")
-
-with st.sidebar.expander("Data transparency"):
+with left:
+    st.title("🐶 Dog Behavior Interpreter")
     st.write(
-        """
-        This prototype uses synthetic labeled examples to demonstrate the AI workflow.
-        The uploaded image supports the intended user journey, but the current prediction is based on structured behavior and context inputs.
-        A production version would use trainer-labeled video/image data and real outcome feedback.
-        """
+        "A mobile-first AI prototype that uses dog profile + behavior context to interpret ambiguous behavior "
+        "and recommend a next action."
     )
 
+with right:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("**Prototype Status**")
+    st.markdown("<span class='step-pill'>1 Input</span><span class='step-pill'>2 Analyze</span><span class='step-pill'>3 Act</span><span class='step-pill'>4 Feedback</span>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+st.divider()
+
 # -----------------------------
-# UI
+# Sidebar
 # -----------------------------
-st.subheader("1. Upload Dog Image (optional)")
-image = st.file_uploader("Upload dog image", type=["jpg", "png", "jpeg"])
+with st.sidebar:
+    st.header("Model Metrics")
+    st.metric("Accuracy", f"{metrics['accuracy']:.0%}")
+    st.metric("Weighted Precision", f"{metrics['precision']:.0%}")
+    st.metric("Weighted Recall", f"{metrics['recall']:.0%}")
 
-if image:
-    st.image(image, caption="Uploaded image", use_container_width=True)
+    with st.expander("Data transparency"):
+        st.write(
+            """
+            This prototype uses synthetic labeled examples to demonstrate the AI workflow.
+            The image supports the intended user journey, but the current prediction is based on structured behavior and context inputs.
+            A production version would use trainer-labeled video/image data and real outcome feedback.
+            """
+        )
 
-st.subheader("2. Dog Profile")
-dog_name = st.text_input("Dog name", value="Sadie")
-age_group = st.selectbox("Age group", ["puppy", "adult", "senior"], index=1)
-size = st.selectbox("Size category", ["small", "medium", "large"], index=1)
-energy = st.selectbox("Typical energy level", ["low", "moderate", "high"], index=2)
-sensitivity = st.selectbox("Known stress sensitivity", ["low", "moderate", "high"], index=1)
+# -----------------------------
+# Input Form
+# -----------------------------
+st.markdown("## Step 1 — Enter dog profile and behavior context")
+st.progress(0.25)
 
-st.subheader("3. Current Behavior Context")
-behavior = st.selectbox("Observed behavior", ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"])
-activity = st.selectbox("Recent activity", ["none", "low", "high"])
-environment = st.selectbox("Environment", ["indoor", "outdoor", "warm", "noisy"])
-duration = st.selectbox("Duration", ["short", "medium", "long"])
-assumption = st.selectbox("Your assumption", ["unsure", "anxiety", "boredom", "overstimulation", "recovery"])
+form_col, preview_col = st.columns([1.2, 0.8])
 
-st.subheader("4. Analyze Behavior")
+with form_col:
+    with st.form("behavior_form"):
+        st.markdown("### Dog profile")
+        profile_cols = st.columns(2)
 
-if st.button("Analyze Behavior", type="primary"):
+        with profile_cols[0]:
+            dog_name = st.text_input("Dog name", value="Sadie")
+            age_group = st.selectbox("Age group", ["puppy", "adult", "senior"], index=1)
+            size = st.selectbox("Size category", ["small", "medium", "large"], index=1)
+
+        with profile_cols[1]:
+            energy = st.selectbox("Typical energy level", ["low", "moderate", "high"], index=2)
+            sensitivity = st.selectbox("Known stress sensitivity", ["low", "moderate", "high"], index=1)
+            assumption = st.selectbox("Your assumption", ["unsure", "anxiety", "boredom", "overstimulation", "recovery"])
+
+        st.markdown("### Current behavior")
+        behavior_cols = st.columns(2)
+
+        with behavior_cols[0]:
+            behavior = st.selectbox("Observed behavior", ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"])
+            activity = st.selectbox("Recent activity", ["none", "low", "high"])
+
+        with behavior_cols[1]:
+            environment = st.selectbox("Environment", ["indoor", "outdoor", "warm", "noisy"])
+            duration = st.selectbox("Duration", ["short", "medium", "long"])
+
+        image = st.file_uploader("Optional dog image", type=["jpg", "png", "jpeg"])
+
+        submitted = st.form_submit_button("Analyze Behavior", type="primary", use_container_width=True)
+
+with preview_col:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("### Input summary")
+    st.write("Use only inputs that help the model interpret behavior.")
+    st.write(f"**Behavior:** {behavior}")
+    st.write(f"**Activity:** {activity}")
+    st.write(f"**Environment:** {environment}")
+    st.write(f"**Duration:** {duration}")
+    st.write(f"**Assumption:** {assumption}")
+    if image:
+        st.image(image, caption="Uploaded dog image", use_container_width=True)
+    else:
+        st.markdown("<span class='small-muted'>Image optional: current prototype uses structured context for prediction.</span>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -----------------------------
+# Results
+# -----------------------------
+if submitted:
+    st.divider()
+    st.markdown("## Step 2 — AI interpretation")
+    st.progress(0.65)
+
     input_df = pd.DataFrame([{
         "behavior": behavior,
         "activity": activity,
@@ -329,71 +414,87 @@ if st.button("Analyze Behavior", type="primary"):
     second_state = prob_df.iloc[1]["Behavior State"]
     second_prob = float(prob_df.iloc[1]["Probability"])
 
-    st.success("AI interpretation complete")
-
-    st.markdown("## 🧠 AI Interpretation")
-    st.write(f"**Dog:** {dog_name}")
-    st.write(f"**Likely state:** {pred.title()}")
-    st.write(f"**Confidence:** {top_prob:.0%} ({confidence_label(top_prob)})")
-    st.write(f"**Secondary possibility:** {second_state.title()} ({second_prob:.0%})")
-
-    if top_prob < 0.55:
-        st.warning(
-            "Confidence is low. The system recommends observing additional signals before taking strong action."
-        )
-
-    st.markdown("## Why this prediction was generated")
-    for reason in build_reasoning(pred, behavior, activity, environment, duration, age_group, energy, sensitivity):
-        st.write(f"- {reason}")
-
+    rec = recommendation_for(pred)
     risk, protective = risk_and_protective_factors(
         behavior, activity, environment, duration, age_group, energy, sensitivity
     )
 
-    col1, col2 = st.columns(2)
-    with col1:
+    st.markdown("<div class='result-card'>", unsafe_allow_html=True)
+    st.markdown(f"### {confidence_color(top_prob)} Likely state: **{pred.title()}**")
+    st.write(f"**Dog:** {dog_name}")
+    st.write(f"**Confidence:** {top_prob:.0%} — {confidence_label(top_prob)}")
+    st.progress(top_prob)
+    st.write(f"**Secondary possibility:** {second_state.title()} ({second_prob:.0%})")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if top_prob < 0.55:
+        st.markdown("<div class='warning-card'>", unsafe_allow_html=True)
+        st.warning("Confidence is low. Observe additional signals before taking strong action.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    output_cols = st.columns([1, 1])
+
+    with output_cols[0]:
+        st.markdown("### Why this prediction was generated")
+        for reason in build_reasoning(behavior, activity, environment, duration, age_group, energy, sensitivity):
+            st.write(f"- {reason}")
+
+    with output_cols[1]:
+        st.markdown("### Recommended action")
+        st.info(rec["summary"])
+        for step in rec["steps"]:
+            st.write(f"- {step}")
+
+    factor_cols = st.columns(2)
+
+    with factor_cols[0]:
         st.markdown("### Risk factors")
         for item in risk:
             st.write(f"- {item}")
 
-    with col2:
+    with factor_cols[1]:
         st.markdown("### Protective factors")
         for item in protective:
             st.write(f"- {item}")
 
-    st.markdown("## Owner assumption comparison")
+    st.markdown("### Owner assumption comparison")
     if assumption == "unsure":
         st.write("No owner assumption was provided, so the system cannot compare against a baseline interpretation.")
     elif assumption == pred:
-        st.write(
-            f"The AI interpretation aligns with the owner’s assumption of **{assumption}**."
-        )
+        st.success(f"The AI interpretation aligns with the owner’s assumption of **{assumption}**.")
     else:
-        st.write(
+        st.warning(
             f"The owner assumed **{assumption}**, while the model predicted **{pred}**. "
-            "This may represent a potential interpretation correction and is useful for measuring misinterpretation reduction."
+            "This may represent a potential interpretation correction."
         )
 
-    st.markdown("## Recommended action plan")
-    rec = recommendation_for(pred)
-    st.info(rec["summary"])
-    for step in rec["steps"]:
-        st.write(f"- {step}")
+    with st.expander("Probability distribution"):
+        chart_df = prob_df.set_index("Behavior State")
+        st.bar_chart(chart_df)
 
     with st.expander("When to escalate"):
         for item in escalation_guidance():
             st.write(f"- {item}")
 
-    st.markdown("## Probability distribution")
-    chart_df = prob_df.set_index("Behavior State")
-    st.bar_chart(chart_df)
+    st.divider()
+    st.markdown("## Step 3 — Feedback loop")
+    st.progress(1.0)
 
-    st.subheader("5. Feedback Loop")
-    accurate = st.radio("Was this interpretation accurate?", ["Yes", "No", "Unsure"], horizontal=True)
-    action_taken = st.radio("Did you take the recommended action?", ["Yes", "No", "Partially"], horizontal=True)
-    improved = st.radio("Did the behavior improve afterward?", ["Yes", "No", "Not sure"], horizontal=True)
+    with st.form("feedback_form"):
+        fb_cols = st.columns(3)
 
-    if st.button("Submit Feedback"):
+        with fb_cols[0]:
+            accurate = st.radio("Was this accurate?", ["Yes", "No", "Unsure"], horizontal=True)
+
+        with fb_cols[1]:
+            action_taken = st.radio("Did you take the action?", ["Yes", "No", "Partially"], horizontal=True)
+
+        with fb_cols[2]:
+            improved = st.radio("Did behavior improve?", ["Yes", "No", "Not sure"], horizontal=True)
+
+        feedback_submitted = st.form_submit_button("Submit Feedback", use_container_width=True)
+
+    if feedback_submitted:
         feedback_row = {
             "timestamp": datetime.now().isoformat(),
             "dog_name": dog_name,
@@ -426,7 +527,8 @@ if st.button("Analyze Behavior", type="primary"):
         updated.to_csv("feedback_log.csv", index=False)
 
         st.success("Feedback saved for future dataset improvement and retraining.")
-        st.dataframe(feedback_df)
+        with st.expander("Feedback record"):
+            st.dataframe(feedback_df)
 
 else:
-    st.info("Enter the dog profile and behavior context, then click Analyze Behavior.")
+    st.info("Complete the form and click Analyze Behavior to move from input to AI interpretation.")
