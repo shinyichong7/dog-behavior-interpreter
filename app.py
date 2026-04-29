@@ -1,9 +1,10 @@
-import os, json, base64
+import os, json, base64, tempfile
 from datetime import datetime
 
 import streamlit as st
 import pandas as pd
 import numpy as np
+import cv2
 from openai import OpenAI
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import OneHotEncoder
@@ -192,8 +193,14 @@ defaults = {
     "visual_eyes": "unknown",
     "visual_hiding": "unknown",
     "image_available": "no",
+    "video_available": "no",
+    "media_type": "none",
     "image_ai_confidence": None,
     "image_ai_reason": None,
+    "movement_pattern": "unknown",
+    "movement_level": "unknown",
+    "behavior_change": "unknown",
+    "behavior_continuity": "unknown",
 }
 
 for key, value in defaults.items():
@@ -223,6 +230,11 @@ def evidence_scores(inputs):
     tail = inputs["visual_tail"]
     eyes = inputs["visual_eyes"]
     hiding = inputs["visual_hiding"]
+
+    movement_pattern = inputs.get("movement_pattern", "unknown")
+    movement_level = inputs.get("movement_level", "unknown")
+    behavior_change = inputs.get("behavior_change", "unknown")
+    behavior_continuity = inputs.get("behavior_continuity", "unknown")
 
     stress_cues = 0
     relaxed_cues = 0
@@ -361,6 +373,58 @@ def evidence_scores(inputs):
     if age == "senior" and duration == "long":
         scores["needs observation"] += 1.0
 
+    # Video / temporal evidence
+    if movement_pattern == "repetitive pacing":
+        scores["anxiety"] += 1.4
+        scores["overstimulation"] += 0.8
+        scores["boredom"] += 0.5
+
+    if movement_pattern == "brief movement":
+        scores["neutral"] += 0.5
+
+    if movement_pattern == "settling down":
+        scores["recovery"] += 1.0
+        scores["neutral"] += 0.8
+        scores["anxiety"] -= 0.5
+
+    if movement_level == "still / resting":
+        scores["neutral"] += 1.0
+        scores["overstimulation"] -= 0.6
+
+    if movement_level == "moderate movement":
+        scores["boredom"] += 0.4
+        scores["neutral"] += 0.2
+
+    if movement_level == "high movement":
+        scores["overstimulation"] += 1.0
+        scores["anxiety"] += 0.4
+
+    if behavior_continuity == "brief / one-time":
+        scores["neutral"] += 0.6
+        scores["needs observation"] -= 0.5
+
+    if behavior_continuity == "repeated":
+        scores["anxiety"] += 0.7
+        scores["boredom"] += 0.5
+
+    if behavior_continuity == "continuous":
+        scores["anxiety"] += 1.0
+        scores["needs observation"] += 0.7
+
+    if behavior_change == "improving / settling":
+        scores["recovery"] += 1.0
+        scores["neutral"] += 0.8
+        scores["anxiety"] -= 0.6
+
+    if behavior_change == "same / unchanged":
+        scores["needs observation"] += 0.4
+
+    if behavior_change == "worsening / escalating":
+        scores["anxiety"] += 1.3
+        scores["overstimulation"] += 0.9
+        scores["needs observation"] += 1.0
+        scores["neutral"] -= 0.8
+
     if relaxed_cues >= 3 and stress_cues == 0:
         scores["neutral"] += 2.0
         scores["anxiety"] -= 1.3
@@ -414,7 +478,7 @@ def hybrid_predict(inputs, ml_model):
 # ==================================================
 
 @st.cache_data
-def generate_data(n=2200):
+def generate_data(n=2600):
     np.random.seed(42)
 
     rows = []
@@ -429,12 +493,18 @@ def generate_data(n=2200):
         "energy": ["low", "moderate", "high"],
         "sensitivity": ["low", "moderate", "high"],
         "image_available": ["yes", "no"],
+        "video_available": ["yes", "no"],
+        "media_type": ["none", "image", "video"],
         "visual_mouth": ["unknown", "closed mouth", "open mouth / panting"],
         "visual_posture": ["unknown", "relaxed", "alert", "tense", "crouched"],
         "visual_ears": ["unknown", "neutral", "back/pinned"],
         "visual_tail": ["unknown", "relaxed", "tucked", "high"],
         "visual_eyes": ["unknown", "relaxed", "wide-eyed / whale eye"],
-        "visual_hiding": ["unknown", "yes", "no"]
+        "visual_hiding": ["unknown", "yes", "no"],
+        "movement_pattern": ["unknown", "brief movement", "repetitive pacing", "settling down"],
+        "movement_level": ["unknown", "still / resting", "moderate movement", "high movement"],
+        "behavior_change": ["unknown", "improving / settling", "same / unchanged", "worsening / escalating"],
+        "behavior_continuity": ["unknown", "brief / one-time", "repeated", "continuous"],
     }
 
     for _ in range(n):
@@ -542,12 +612,61 @@ Be conservative. If a cue is not clearly visible, use "unknown".
         return {"error": f"Image analysis failed: {str(e)}"}
 
 
-def visual_cue_completeness(image_available, *visuals):
+def extract_video_frames(video_file, max_frames=4):
+    video_bytes = video_file.getvalue()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_file:
+        temp_file.write(video_bytes)
+        temp_path = temp_file.name
+
+    frames = []
+    cap = cv2.VideoCapture(temp_path)
+
+    if not cap.isOpened():
+        return frames
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if total_frames <= 0:
+        cap.release()
+        return frames
+
+    frame_indices = np.linspace(0, total_frames - 1, max_frames).astype(int)
+
+    for idx in frame_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+        success, frame = cap.read()
+
+        if success:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frames.append(frame_rgb)
+
+    cap.release()
+
+    try:
+        os.remove(temp_path)
+    except Exception:
+        pass
+
+    return frames
+
+
+def visual_cue_completeness(image_available, video_available, *visuals):
     known = sum(v != "unknown" for v in visuals)
     base = known / len(visuals)
+
+    if video_available == "yes":
+        return min(1.0, base + 0.22)
+
     if image_available == "yes":
         return min(1.0, base + 0.15)
+
     return base * 0.75
+
+
+def temporal_completeness(*temporal_fields):
+    known = sum(v != "unknown" for v in temporal_fields)
+    return known / len(temporal_fields)
 
 
 def confidence_label(prob):
@@ -627,32 +746,32 @@ def education_for(pred):
     return {
         "recovery": {
             "what_it_means": "Recovery means the behavior may be a normal response after activity, excitement, or warmth.",
-            "common_cues": ["Panting after activity", "Short duration", "Relaxed or neutral body posture"],
+            "common_cues": ["Panting after activity", "Short duration", "Relaxed or neutral body posture", "Settling over time"],
             "watch_for": ["Panting that does not reduce with rest", "Labored breathing", "Lethargy or collapse"]
         },
         "anxiety": {
             "what_it_means": "Anxiety means the dog may be responding to stress, uncertainty, fear, or environmental triggers.",
-            "common_cues": ["Pacing", "Hiding", "Pinned ears", "Tucked tail", "Whale eye"],
+            "common_cues": ["Pacing", "Hiding", "Pinned ears", "Tucked tail", "Whale eye", "Repeated or continuous behavior"],
             "watch_for": ["Escalating avoidance", "Repeated inability to settle", "Frequent fear responses"]
         },
         "boredom": {
             "what_it_means": "Boredom means the dog may need mental stimulation, engagement, or structured activity.",
-            "common_cues": ["Toy-seeking", "Restlessness", "Low recent activity", "Attention-seeking"],
+            "common_cues": ["Toy-seeking", "Restlessness", "Low recent activity", "Attention-seeking", "Repeated mild movement"],
             "watch_for": ["Demand behavior increasing", "Destructive behavior", "Difficulty settling"]
         },
         "overstimulation": {
             "what_it_means": "Overstimulation means the dog may be over-aroused and needs decompression rather than more activity.",
-            "common_cues": ["Pacing after activity", "Panting after excitement", "Inability to settle"],
+            "common_cues": ["Pacing after activity", "Panting after excitement", "High movement", "Inability to settle"],
             "watch_for": ["Jumping, mouthing, or frantic behavior", "Escalation after more play", "Difficulty calming down"]
         },
         "neutral": {
             "what_it_means": "Neutral means the available signals do not strongly suggest stress, boredom, overstimulation, or concern.",
-            "common_cues": ["Relaxed posture", "Short duration", "Resting", "No obvious stressors"],
+            "common_cues": ["Relaxed posture", "Short duration", "Resting", "No obvious stressors", "Stillness or settling"],
             "watch_for": ["Sudden behavior changes", "Persistent unusual behavior", "Changes in appetite or responsiveness"]
         },
         "needs observation": {
             "what_it_means": "Needs observation means the signals are unclear or potentially elevated, so the safest response is monitoring and cautious escalation.",
-            "common_cues": ["Long duration", "Senior dog", "Unclear cause", "Incomplete visual cues"],
+            "common_cues": ["Long duration", "Senior dog", "Unclear cause", "Incomplete visual cues", "Worsening behavior"],
             "watch_for": ["Symptoms worsening", "Repeated episodes", "Any medical warning signs"]
         }
     }[pred]
@@ -676,9 +795,13 @@ def factors(inputs):
         ("visual_ears", "ear position"),
         ("visual_tail", "tail position"),
         ("visual_eyes", "eye expression"),
-        ("visual_hiding", "hiding / avoidance visibility")
+        ("visual_hiding", "hiding / avoidance visibility"),
+        ("movement_pattern", "movement pattern"),
+        ("movement_level", "movement level"),
+        ("behavior_change", "change over time"),
+        ("behavior_continuity", "behavior continuity"),
     ]:
-        if inputs[key] == "unknown":
+        if inputs.get(key, "unknown") == "unknown":
             missing.append(label)
 
     if inputs["behavior"] in ["pacing", "whining", "hiding"]:
@@ -701,6 +824,14 @@ def factors(inputs):
         risk.append("High stress sensitivity")
     if inputs["age_group"] == "senior":
         risk.append("Senior age group")
+    if inputs.get("movement_pattern") == "repetitive pacing":
+        risk.append("Repeated pacing pattern")
+    if inputs.get("movement_level") == "high movement":
+        risk.append("High movement level")
+    if inputs.get("behavior_change") == "worsening / escalating":
+        risk.append("Behavior worsening over time")
+    if inputs.get("behavior_continuity") == "continuous":
+        risk.append("Continuous behavior")
 
     if inputs["activity"] == "high" and (
         inputs["behavior"] == "panting" or inputs["visual_mouth"] == "open mouth / panting"
@@ -720,6 +851,12 @@ def factors(inputs):
         protective.append("Relaxed eyes")
     if inputs["sensitivity"] in ["low", "moderate"]:
         protective.append(f"{inputs['sensitivity'].title()} stress sensitivity")
+    if inputs.get("movement_pattern") == "settling down":
+        protective.append("Dog appears to be settling down")
+    if inputs.get("movement_level") == "still / resting":
+        protective.append("Still or resting movement level")
+    if inputs.get("behavior_change") == "improving / settling":
+        protective.append("Behavior improving over time")
 
     if not risk:
         risk.append("No major risk factors identified")
@@ -729,13 +866,15 @@ def factors(inputs):
     return risk, protective, missing
 
 
-def build_reasoning(inputs, image_available, completeness):
+def build_reasoning(inputs, completeness, temporal_quality):
     reasons = []
 
-    if image_available == "yes":
-        reasons.append("AI-extracted image cues were included, so the interpretation uses both owner context and visible body-language signals.")
+    if inputs["media_type"] == "video":
+        reasons.append("Video-assisted cues were included, so the interpretation considers both visible body-language signals and behavior over time.")
+    elif inputs["media_type"] == "image":
+        reasons.append("Image-assisted cues were included, so the interpretation considers visible body-language signals.")
     else:
-        reasons.append("No image was used in this run. The interpretation is based on profile and behavior context only.")
+        reasons.append("No media was used in this run. The interpretation is based on profile and behavior context only.")
 
     if inputs["visual_posture"] == "relaxed" and inputs["visual_eyes"] == "relaxed":
         reasons.append("Relaxed posture and relaxed eyes reduce concern for anxiety.")
@@ -754,21 +893,33 @@ def build_reasoning(inputs, image_available, completeness):
     if inputs["duration"] == "short":
         reasons.append("Short duration lowers concern and may indicate a temporary state.")
 
-    reasons.append(f"Interpretation quality is {quality_label(completeness)} based on available visual and contextual cues.")
+    if inputs.get("movement_pattern") == "repetitive pacing":
+        reasons.append("Repeated pacing over time increases concern for anxiety, boredom, or overstimulation.")
+    if inputs.get("movement_pattern") == "settling down":
+        reasons.append("Settling over time reduces concern and supports recovery or neutral interpretation.")
+    if inputs.get("behavior_change") == "worsening / escalating":
+        reasons.append("Worsening behavior increases concern and lowers confidence in a neutral explanation.")
+    if inputs.get("behavior_change") == "improving / settling":
+        reasons.append("Improvement over time supports recovery or neutral interpretation.")
+
+    reasons.append(f"Visual interpretation quality is {quality_label(completeness)}.")
+    reasons.append(f"Temporal interpretation quality is {quality_label(temporal_quality)}.")
+
     return reasons
 
 
-def confidence_drivers(inputs, completeness, adjusted_prob):
+def confidence_drivers(inputs, visual_quality, temporal_quality, adjusted_prob):
     drivers = []
 
-    drivers.append("Image cues included" if inputs["image_available"] == "yes" else "No image cues included")
-
-    if completeness >= 0.75:
-        drivers.append("High input completeness")
-    elif completeness >= 0.4:
-        drivers.append("Moderate input completeness")
+    if inputs["media_type"] == "video":
+        drivers.append("Video cues included")
+    elif inputs["media_type"] == "image":
+        drivers.append("Image cues included")
     else:
-        drivers.append("Low input completeness")
+        drivers.append("No media cues included")
+
+    drivers.append(f"Visual cue completeness: {quality_label(visual_quality)}")
+    drivers.append(f"Temporal cue completeness: {quality_label(temporal_quality)}")
 
     if inputs["assumption"] != "unsure":
         drivers.append("Owner baseline assumption available")
@@ -788,14 +939,18 @@ def confidence_drivers(inputs, completeness, adjusted_prob):
 def what_would_change_prediction(inputs):
     suggestions = []
 
-    if inputs["image_available"] == "no":
-        suggestions.append("Uploading a clear dog image could add body-language cues and improve interpretation quality.")
+    if inputs["media_type"] == "none":
+        suggestions.append("Uploading a clear dog image or short video could add body-language and movement cues.")
+    if inputs["media_type"] != "video":
+        suggestions.append("A short video could help determine whether the behavior is brief, repeated, continuous, improving, or worsening.")
     if inputs["visual_posture"] == "unknown":
         suggestions.append("Knowing whether posture is relaxed, tense, or crouched would help distinguish anxiety from recovery or neutrality.")
     if inputs["visual_eyes"] == "unknown":
         suggestions.append("Eye expression could strongly affect anxiety scoring, especially whale eye versus relaxed eyes.")
     if inputs["visual_tail"] == "unknown" or inputs["visual_ears"] == "unknown":
         suggestions.append("Ear and tail position could shift the interpretation toward or away from stress.")
+    if inputs.get("behavior_change") == "unknown":
+        suggestions.append("Knowing whether the behavior is improving or worsening would improve confidence.")
     if inputs["behavior"] == "panting":
         suggestions.append("If panting decreases after rest, recovery becomes more likely; if it persists without heat/activity, concern increases.")
     if inputs["behavior"] == "pacing":
@@ -823,8 +978,9 @@ with st.sidebar:
             This prototype uses a hybrid AI approach:
             
             1. A supervised ML classifier learns behavior patterns from synthetic labeled examples.
-            2. A behavioral evidence scoring layer calibrates strong cues like whale eye, tucked tail, relaxed posture, and activity context.
-            3. An optional vision model can validate dog images and pre-fill visual cues.
+            2. A behavioral evidence scoring layer calibrates strong cues like whale eye, tucked tail, relaxed posture, activity, and movement over time.
+            3. Optional vision AI can validate dog images and pre-fill visual cues.
+            4. Video-assisted review samples frames and captures temporal behavior signals.
             
             The app is preventive behavioral decision support, not diagnosis.
             """
@@ -834,6 +990,7 @@ with st.sidebar:
         st.write(
             """
             The current model uses synthetic training data and structured behavioral logic.
+            Video processing samples representative frames and uses owner-reviewed temporal cues.
             Feedback is logged for future retraining but does not automatically retrain the model after each submission.
             """
         )
@@ -845,7 +1002,7 @@ with st.sidebar:
 
 st.title("🐶 Dog Behavior Interpreter")
 st.write(
-    "A preventive AI decision-support prototype that helps owners understand ambiguous dog behavior using profile, context, and optional image cues."
+    "A preventive AI decision-support prototype that helps owners understand ambiguous dog behavior using profile, context, and optional image/video cues."
 )
 
 st.markdown("""
@@ -970,50 +1127,94 @@ elif st.session_state.phase == 2:
 # ==================================================
 
 elif st.session_state.phase == 3:
-    st.markdown("## Phase 3 — AI Image Cue Review")
+    st.markdown("## Phase 3 — Image / Video Cue Review")
 
     st.write(
-        "Upload a dog image if available. The app can use AI to validate the image and pre-fill visible body-language cues. You can review and override the selections."
+        "Upload a dog image or short video if available. Video adds temporal signals like repeated pacing, settling, or escalation over time."
     )
 
-    image = st.file_uploader("Upload dog image", type=["jpg", "jpeg", "png"])
+    media_choice = st.radio(
+        "Input type",
+        ["No media", "Image", "Video"],
+        horizontal=True
+    )
 
-    invalid_image = False
+    image = None
+    video = None
+    invalid_media = False
 
-    if image:
-        st.image(image, caption="Uploaded image for AI cue extraction", width=350)
+    if media_choice == "Image":
+        image = st.file_uploader("Upload dog image", type=["jpg", "jpeg", "png"])
 
-        if st.button("Analyze Image Cues with AI", type="secondary"):
-            with st.spinner("Analyzing image cues..."):
-                image_result = analyze_image_with_ai(image)
+        if image:
+            st.image(image, caption="Uploaded image for AI cue extraction", width=350)
+            st.session_state.media_type = "image"
+            st.session_state.image_available = "yes"
+            st.session_state.video_available = "no"
 
-            if "error" in image_result:
-                st.error(image_result["error"])
-                st.info("You can still continue without image AI by manually selecting cues.")
-                st.session_state.image_available = "no"
+            if st.button("Analyze Image Cues with AI", type="secondary"):
+                with st.spinner("Analyzing image cues..."):
+                    image_result = analyze_image_with_ai(image)
 
-            elif not image_result.get("image_valid", False):
-                st.error("Invalid image. Please upload an image that clearly shows a dog.")
-                st.session_state.image_available = "no"
-                invalid_image = True
+                if "error" in image_result:
+                    st.error(image_result["error"])
+                    st.info("You can still continue by manually selecting cues.")
+                    st.session_state.image_available = "no"
+                    st.session_state.media_type = "none"
 
+                elif not image_result.get("image_valid", False):
+                    st.error("Invalid image. Please upload an image that clearly shows a dog.")
+                    st.session_state.image_available = "no"
+                    st.session_state.media_type = "none"
+                    invalid_media = True
+
+                else:
+                    st.success("Dog image validated. Visual cues were auto-filled.")
+                    st.write(image_result.get("reason", ""))
+                    st.session_state.visual_mouth = image_result.get("visual_mouth", "unknown")
+                    st.session_state.visual_posture = image_result.get("visual_posture", "unknown")
+                    st.session_state.visual_ears = image_result.get("visual_ears", "unknown")
+                    st.session_state.visual_tail = image_result.get("visual_tail", "unknown")
+                    st.session_state.visual_eyes = image_result.get("visual_eyes", "unknown")
+                    st.session_state.visual_hiding = image_result.get("visual_hiding", "unknown")
+                    st.session_state.image_ai_confidence = image_result.get("confidence", None)
+                    st.session_state.image_ai_reason = image_result.get("reason", None)
+                    st.rerun()
+        else:
+            st.session_state.media_type = "none"
+            st.session_state.image_available = "no"
+            st.session_state.video_available = "no"
+
+    elif media_choice == "Video":
+        video = st.file_uploader("Upload short dog video", type=["mp4", "mov", "avi", "m4v"])
+
+        if video:
+            st.video(video)
+            st.session_state.media_type = "video"
+            st.session_state.image_available = "no"
+            st.session_state.video_available = "yes"
+
+            frames = extract_video_frames(video, max_frames=4)
+
+            if frames:
+                st.markdown("### Sampled video frames")
+                frame_cols = st.columns(len(frames))
+                for i, frame in enumerate(frames):
+                    with frame_cols[i]:
+                        st.image(frame, caption=f"Frame {i + 1}", use_container_width=True)
             else:
-                st.success("Dog image validated. Visual cues were auto-filled.")
-                st.write(image_result.get("reason", ""))
+                st.warning("Could not extract frames from this video. You can still manually select temporal cues.")
+        else:
+            st.session_state.media_type = "none"
+            st.session_state.image_available = "no"
+            st.session_state.video_available = "no"
 
-                st.session_state.image_available = "yes"
-                st.session_state.visual_mouth = image_result.get("visual_mouth", "unknown")
-                st.session_state.visual_posture = image_result.get("visual_posture", "unknown")
-                st.session_state.visual_ears = image_result.get("visual_ears", "unknown")
-                st.session_state.visual_tail = image_result.get("visual_tail", "unknown")
-                st.session_state.visual_eyes = image_result.get("visual_eyes", "unknown")
-                st.session_state.visual_hiding = image_result.get("visual_hiding", "unknown")
-                st.session_state.image_ai_confidence = image_result.get("confidence", None)
-                st.session_state.image_ai_reason = image_result.get("reason", None)
-                st.rerun()
     else:
+        st.session_state.media_type = "none"
         st.session_state.image_available = "no"
+        st.session_state.video_available = "no"
 
+    st.markdown("### Visual cues")
     c1, c2, c3 = st.columns(3)
 
     with c1:
@@ -1052,6 +1253,34 @@ elif st.session_state.phase == 3:
             index=["unknown", "yes", "no"].index(st.session_state.visual_hiding)
         )
 
+    st.markdown("### Temporal cues")
+    t1, t2 = st.columns(2)
+
+    with t1:
+        st.session_state.movement_pattern = st.selectbox(
+            "Movement pattern",
+            ["unknown", "brief movement", "repetitive pacing", "settling down"],
+            index=["unknown", "brief movement", "repetitive pacing", "settling down"].index(st.session_state.movement_pattern),
+            help="Video is strongest when it shows whether behavior repeats or changes over time."
+        )
+        st.session_state.movement_level = st.selectbox(
+            "Movement level",
+            ["unknown", "still / resting", "moderate movement", "high movement"],
+            index=["unknown", "still / resting", "moderate movement", "high movement"].index(st.session_state.movement_level)
+        )
+
+    with t2:
+        st.session_state.behavior_change = st.selectbox(
+            "Change over time",
+            ["unknown", "improving / settling", "same / unchanged", "worsening / escalating"],
+            index=["unknown", "improving / settling", "same / unchanged", "worsening / escalating"].index(st.session_state.behavior_change)
+        )
+        st.session_state.behavior_continuity = st.selectbox(
+            "Behavior continuity",
+            ["unknown", "brief / one-time", "repeated", "continuous"],
+            index=["unknown", "brief / one-time", "repeated", "continuous"].index(st.session_state.behavior_continuity)
+        )
+
     visuals = [
         st.session_state.visual_mouth,
         st.session_state.visual_posture,
@@ -1061,19 +1290,39 @@ elif st.session_state.phase == 3:
         st.session_state.visual_hiding
     ]
 
-    completeness = visual_cue_completeness(st.session_state.image_available, *visuals)
+    temporal_fields = [
+        st.session_state.movement_pattern,
+        st.session_state.movement_level,
+        st.session_state.behavior_change,
+        st.session_state.behavior_continuity
+    ]
+
+    visual_quality = visual_cue_completeness(
+        st.session_state.image_available,
+        st.session_state.video_available,
+        *visuals
+    )
+
+    temporal_quality = temporal_completeness(*temporal_fields)
 
     st.markdown("### Input Quality Preview")
-    st.write(f"**Dog image used:** {'Yes' if st.session_state.image_available == 'yes' else 'No'}")
-    st.write(f"**Visual cue completeness:** {quality_label(completeness)}")
-    st.progress(completeness)
+    q1, q2, q3 = st.columns(3)
+
+    with q1:
+        st.write(f"**Media used:** {st.session_state.media_type.title()}")
+    with q2:
+        st.write(f"**Visual cue quality:** {quality_label(visual_quality)}")
+        st.progress(visual_quality)
+    with q3:
+        st.write(f"**Temporal cue quality:** {quality_label(temporal_quality)}")
+        st.progress(temporal_quality)
 
     nav1, nav2, spacer = st.columns([1, 1, 3])
     with nav1:
         st.button("Back", on_click=set_phase, args=(2,), use_container_width=True)
 
     with nav2:
-        analyze_clicked = st.button("Analyze", type="primary", use_container_width=True, disabled=invalid_image)
+        analyze_clicked = st.button("Analyze", type="primary", use_container_width=True, disabled=invalid_media)
 
     if analyze_clicked:
         inputs = {
@@ -1087,12 +1336,18 @@ elif st.session_state.phase == 3:
             "energy": st.session_state.energy,
             "sensitivity": st.session_state.sensitivity,
             "image_available": st.session_state.image_available,
+            "video_available": st.session_state.video_available,
+            "media_type": st.session_state.media_type,
             "visual_mouth": st.session_state.visual_mouth,
             "visual_posture": st.session_state.visual_posture,
             "visual_ears": st.session_state.visual_ears,
             "visual_tail": st.session_state.visual_tail,
             "visual_eyes": st.session_state.visual_eyes,
-            "visual_hiding": st.session_state.visual_hiding
+            "visual_hiding": st.session_state.visual_hiding,
+            "movement_pattern": st.session_state.movement_pattern,
+            "movement_level": st.session_state.movement_level,
+            "behavior_change": st.session_state.behavior_change,
+            "behavior_continuity": st.session_state.behavior_continuity,
         }
 
         pred, prob_df, evidence_probs, ml_probs, raw_scores = hybrid_predict(inputs, model)
@@ -1111,7 +1366,8 @@ elif st.session_state.phase == 3:
             "adjusted_prob": top_prob,
             "second_state": second_state,
             "second_prob": second_prob,
-            "completeness": completeness
+            "completeness": visual_quality,
+            "temporal_quality": temporal_quality
         }
 
         set_phase(4)
@@ -1137,7 +1393,8 @@ elif st.session_state.phase == 4:
         adjusted_prob = result["adjusted_prob"]
         second_state = result["second_state"]
         second_prob = result["second_prob"]
-        completeness = result["completeness"]
+        visual_quality = result["completeness"]
+        temporal_quality = result.get("temporal_quality", 0)
         evidence_probs = result["evidence_probs"]
         ml_probs = result["ml_probs"]
 
@@ -1147,12 +1404,18 @@ elif st.session_state.phase == 4:
 
         context_only_inputs = inputs.copy()
         context_only_inputs["image_available"] = "no"
+        context_only_inputs["video_available"] = "no"
+        context_only_inputs["media_type"] = "none"
         context_only_inputs["visual_mouth"] = "unknown"
         context_only_inputs["visual_posture"] = "unknown"
         context_only_inputs["visual_ears"] = "unknown"
         context_only_inputs["visual_tail"] = "unknown"
         context_only_inputs["visual_eyes"] = "unknown"
         context_only_inputs["visual_hiding"] = "unknown"
+        context_only_inputs["movement_pattern"] = "unknown"
+        context_only_inputs["movement_level"] = "unknown"
+        context_only_inputs["behavior_change"] = "unknown"
+        context_only_inputs["behavior_continuity"] = "unknown"
 
         context_pred, context_prob_df, _, _, _ = hybrid_predict(context_only_inputs, model)
         context_confidence = float(context_prob_df.iloc[0]["Probability"])
@@ -1180,10 +1443,11 @@ elif st.session_state.phase == 4:
         with r3:
             st.markdown("<div class='quality-card'>", unsafe_allow_html=True)
             st.markdown("### Quality")
-            st.write(f"**Input:** {quality_label(completeness)}")
-            st.write(f"**Image cues:** {'Used' if inputs['image_available'] == 'yes' else 'Not used'}")
-            st.write(f"**Missing cues:** {len(missing)}")
-            st.progress(completeness)
+            st.write(f"**Visual:** {quality_label(visual_quality)}")
+            st.progress(visual_quality)
+            st.write(f"**Temporal:** {quality_label(temporal_quality)}")
+            st.progress(temporal_quality)
+            st.write(f"**Media:** {inputs['media_type'].title()}")
             st.markdown("</div>", unsafe_allow_html=True)
 
         if adjusted_prob < 0.55:
@@ -1196,7 +1460,7 @@ elif st.session_state.phase == 4:
             f"It means the available signals are most consistent with **{pred}**, while some uncertainty may remain."
         )
 
-        tabs = st.tabs(["Overview", "Why this result", "Image impact", "Learn", "Details"])
+        tabs = st.tabs(["Overview", "Why this result", "Media impact", "Learn", "Details"])
 
         with tabs[0]:
             st.markdown("<div class='section-card'>", unsafe_allow_html=True)
@@ -1226,11 +1490,11 @@ elif st.session_state.phase == 4:
         with tabs[1]:
             st.markdown("<div class='section-card'>", unsafe_allow_html=True)
             st.markdown("### AI reasoning summary")
-            for reason in build_reasoning(inputs, inputs["image_available"], completeness):
+            for reason in build_reasoning(inputs, visual_quality, temporal_quality):
                 st.write(f"- {reason}")
 
             st.markdown("### Confidence drivers")
-            for driver in confidence_drivers(inputs, completeness, adjusted_prob):
+            for driver in confidence_drivers(inputs, visual_quality, temporal_quality, adjusted_prob):
                 st.write(f"- {driver}")
 
             st.markdown("### What could change this prediction?")
@@ -1240,7 +1504,7 @@ elif st.session_state.phase == 4:
 
         with tabs[2]:
             st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-            st.markdown("### Image cue impact comparison")
+            st.markdown("### Media impact comparison")
             c1, c2 = st.columns(2)
 
             with c1:
@@ -1250,18 +1514,17 @@ elif st.session_state.phase == 4:
                 st.write(f"**Confidence:** {context_confidence:.0%}")
 
             with c2:
-                st.markdown("#### Context + dog image cues")
-                st.write("Profile + context + visual cues")
+                st.markdown("#### Context + media cues")
+                st.write("Profile + context + visual/temporal cues")
                 st.write(f"**Prediction:** {pred.title()}")
                 st.write(f"**Confidence:** {adjusted_prob:.0%}")
 
-            if inputs["image_available"] == "yes":
-                if context_pred != pred:
-                    st.success("The dog image cues changed the predicted state.")
-                else:
-                    st.info("The dog image cues did not change the top state, but may still affect confidence.")
+            if inputs["media_type"] == "video":
+                st.success("Video cues were included, adding movement pattern, movement level, change over time, and behavior continuity.")
+            elif inputs["media_type"] == "image":
+                st.success("Image cues were included, adding visible body-language signals.")
             else:
-                st.warning("Because no dog image was used, the system relied mostly on structured context.")
+                st.warning("No media was used, so the system relied mostly on structured context.")
             st.markdown("</div>", unsafe_allow_html=True)
 
         with tabs[3]:
@@ -1346,7 +1609,8 @@ elif st.session_state.phase == 5:
         adjusted_prob = result["adjusted_prob"]
         second_state = result["second_state"]
         second_prob = result["second_prob"]
-        completeness = result["completeness"]
+        visual_quality = result["completeness"]
+        temporal_quality = result.get("temporal_quality", 0)
 
         feedback_count = get_feedback_count()
 
@@ -1399,7 +1663,8 @@ elif st.session_state.phase == 5:
                 "confidence": round(adjusted_prob, 3),
                 "secondary_state": second_state,
                 "secondary_probability": round(second_prob, 3),
-                "input_completeness": round(completeness, 3),
+                "visual_quality": round(visual_quality, 3),
+                "temporal_quality": round(temporal_quality, 3),
                 "accurate_feedback": accurate,
                 "action_taken": action_taken,
                 "behavior_improved": improved
@@ -1431,12 +1696,18 @@ elif st.session_state.phase == 5:
                     "feedback_done",
                     "phase",
                     "image_available",
+                    "video_available",
+                    "media_type",
                     "visual_mouth",
                     "visual_posture",
                     "visual_ears",
                     "visual_tail",
                     "visual_eyes",
                     "visual_hiding",
+                    "movement_pattern",
+                    "movement_level",
+                    "behavior_change",
+                    "behavior_continuity",
                     "image_ai_confidence",
                     "image_ai_reason"
                 ]:
