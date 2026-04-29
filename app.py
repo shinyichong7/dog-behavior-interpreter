@@ -42,36 +42,40 @@ html, body, [class*="css"] {
 
 .stepper {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     margin: 12px 0 20px 0;
     flex-wrap: wrap;
 }
 
-.step-active {
-    padding: 0.55rem 0.85rem;
+.step-active,
+.step-complete,
+.step-inactive {
+    width: 130px;
+    min-height: 42px;
+    padding: 0.55rem 0.7rem;
     border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap;
+    font-weight: 700;
+    font-size: 0.88rem;
+}
+
+.step-active {
     background: #7A9E7E;
     color: white;
-    font-weight: 700;
-    font-size: 0.9rem;
 }
 
 .step-complete {
-    padding: 0.55rem 0.85rem;
-    border-radius: 999px;
     background: #DCEBD8;
     color: #355E3B;
-    font-weight: 700;
-    font-size: 0.9rem;
 }
 
 .step-inactive {
-    padding: 0.55rem 0.85rem;
-    border-radius: 999px;
     background: #EFE8DD;
     color: #7A6A58;
-    font-weight: 600;
-    font-size: 0.9rem;
 }
 
 .result-card {
@@ -435,10 +439,8 @@ def generate_data(n=2200):
 
     for _ in range(n):
         row = {k: np.random.choice(v) for k, v in values.items()}
-
         probs, _ = evidence_scores(row)
         label = max(probs, key=probs.get)
-
         rows.append({**row, "label": label})
 
     return pd.DataFrame(rows)
@@ -879,16 +881,42 @@ if st.session_state.phase == 1:
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        st.session_state.dog_name = st.text_input("Dog name", value=st.session_state.get("dog_name", "Sadie"), help="Used to personalize the output only.")
-        st.session_state.age_group = st.selectbox("Age group", ["puppy", "adult", "senior"], index=["puppy", "adult", "senior"].index(st.session_state.get("age_group", "adult")))
+        st.session_state.dog_name = st.text_input(
+            "Dog name",
+            value=st.session_state.get("dog_name", "Sadie"),
+            help="Used to personalize the output only."
+        )
+        st.session_state.age_group = st.selectbox(
+            "Age group",
+            ["puppy", "adult", "senior"],
+            index=["puppy", "adult", "senior"].index(st.session_state.get("age_group", "adult"))
+        )
 
     with c2:
-        st.session_state.size = st.selectbox("Size category", ["small", "medium", "large"], index=["small", "medium", "large"].index(st.session_state.get("size", "medium")))
-        st.session_state.energy = st.selectbox("Typical energy level", ["low", "moderate", "high"], index=["low", "moderate", "high"].index(st.session_state.get("energy", "high")))
+        st.session_state.size = st.selectbox(
+            "Size category",
+            ["small", "medium", "large"],
+            index=["small", "medium", "large"].index(st.session_state.get("size", "medium"))
+        )
+        st.session_state.energy = st.selectbox(
+            "Typical energy level",
+            ["low", "moderate", "high"],
+            index=["low", "moderate", "high"].index(st.session_state.get("energy", "high"))
+        )
 
     with c3:
-        st.session_state.sensitivity = st.selectbox("Known stress sensitivity", ["low", "moderate", "high"], index=["low", "moderate", "high"].index(st.session_state.get("sensitivity", "moderate")))
-        st.session_state.assumption = st.selectbox("Your initial assumption", ["unsure", "anxiety", "boredom", "overstimulation", "recovery"], index=["unsure", "anxiety", "boredom", "overstimulation", "recovery"].index(st.session_state.get("assumption", "unsure")))
+        st.session_state.sensitivity = st.selectbox(
+            "Known stress sensitivity",
+            ["low", "moderate", "high"],
+            index=["low", "moderate", "high"].index(st.session_state.get("sensitivity", "moderate"))
+        )
+        st.session_state.assumption = st.selectbox(
+            "Your initial assumption",
+            ["unsure", "anxiety", "boredom", "overstimulation", "recovery"],
+            index=["unsure", "anxiety", "boredom", "overstimulation", "recovery"].index(
+                st.session_state.get("assumption", "unsure")
+            )
+        )
 
     nav1, nav2, spacer = st.columns([1, 1, 3])
     with nav1:
@@ -905,12 +933,30 @@ elif st.session_state.phase == 2:
     c1, c2 = st.columns(2)
 
     with c1:
-        st.session_state.behavior = st.selectbox("Observed behavior", ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"], index=["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"].index(st.session_state.get("behavior", "panting")))
-        st.session_state.activity = st.selectbox("Recent activity", ["none", "low", "high"], index=["none", "low", "high"].index(st.session_state.get("activity", "none")))
+        st.session_state.behavior = st.selectbox(
+            "Observed behavior",
+            ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"],
+            index=["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"].index(
+                st.session_state.get("behavior", "panting")
+            )
+        )
+        st.session_state.activity = st.selectbox(
+            "Recent activity",
+            ["none", "low", "high"],
+            index=["none", "low", "high"].index(st.session_state.get("activity", "none"))
+        )
 
     with c2:
-        st.session_state.environment = st.selectbox("Environment", ["indoor", "outdoor", "warm", "noisy"], index=["indoor", "outdoor", "warm", "noisy"].index(st.session_state.get("environment", "indoor")))
-        st.session_state.duration = st.selectbox("Duration", ["short", "medium", "long"], index=["short", "medium", "long"].index(st.session_state.get("duration", "short")))
+        st.session_state.environment = st.selectbox(
+            "Environment",
+            ["indoor", "outdoor", "warm", "noisy"],
+            index=["indoor", "outdoor", "warm", "noisy"].index(st.session_state.get("environment", "indoor"))
+        )
+        st.session_state.duration = st.selectbox(
+            "Duration",
+            ["short", "medium", "long"],
+            index=["short", "medium", "long"].index(st.session_state.get("duration", "short"))
+        )
 
     nav1, nav2, spacer = st.columns([1, 1, 3])
     with nav1:
@@ -926,7 +972,9 @@ elif st.session_state.phase == 2:
 elif st.session_state.phase == 3:
     st.markdown("## Phase 3 — AI Image Cue Review")
 
-    st.write("Upload a dog image if available. The app can use AI to validate the image and pre-fill visible body-language cues. You can review and override the selections.")
+    st.write(
+        "Upload a dog image if available. The app can use AI to validate the image and pre-fill visible body-language cues. You can review and override the selections."
+    )
 
     image = st.file_uploader("Upload dog image", type=["jpg", "jpeg", "png"])
 
@@ -969,16 +1017,40 @@ elif st.session_state.phase == 3:
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        st.session_state.visual_mouth = st.selectbox("Mouth / panting visible", ["unknown", "closed mouth", "open mouth / panting"], index=["unknown", "closed mouth", "open mouth / panting"].index(st.session_state.visual_mouth))
-        st.session_state.visual_posture = st.selectbox("Body posture", ["unknown", "relaxed", "alert", "tense", "crouched"], index=["unknown", "relaxed", "alert", "tense", "crouched"].index(st.session_state.visual_posture))
+        st.session_state.visual_mouth = st.selectbox(
+            "Mouth / panting visible",
+            ["unknown", "closed mouth", "open mouth / panting"],
+            index=["unknown", "closed mouth", "open mouth / panting"].index(st.session_state.visual_mouth)
+        )
+        st.session_state.visual_posture = st.selectbox(
+            "Body posture",
+            ["unknown", "relaxed", "alert", "tense", "crouched"],
+            index=["unknown", "relaxed", "alert", "tense", "crouched"].index(st.session_state.visual_posture)
+        )
 
     with c2:
-        st.session_state.visual_ears = st.selectbox("Ear position", ["unknown", "neutral", "back/pinned"], index=["unknown", "neutral", "back/pinned"].index(st.session_state.visual_ears))
-        st.session_state.visual_tail = st.selectbox("Tail position", ["unknown", "relaxed", "tucked", "high"], index=["unknown", "relaxed", "tucked", "high"].index(st.session_state.visual_tail))
+        st.session_state.visual_ears = st.selectbox(
+            "Ear position",
+            ["unknown", "neutral", "back/pinned"],
+            index=["unknown", "neutral", "back/pinned"].index(st.session_state.visual_ears)
+        )
+        st.session_state.visual_tail = st.selectbox(
+            "Tail position",
+            ["unknown", "relaxed", "tucked", "high"],
+            index=["unknown", "relaxed", "tucked", "high"].index(st.session_state.visual_tail)
+        )
 
     with c3:
-        st.session_state.visual_eyes = st.selectbox("Eye expression", ["unknown", "relaxed", "wide-eyed / whale eye"], index=["unknown", "relaxed", "wide-eyed / whale eye"].index(st.session_state.visual_eyes))
-        st.session_state.visual_hiding = st.selectbox("Hiding / avoidance visible", ["unknown", "yes", "no"], index=["unknown", "yes", "no"].index(st.session_state.visual_hiding))
+        st.session_state.visual_eyes = st.selectbox(
+            "Eye expression",
+            ["unknown", "relaxed", "wide-eyed / whale eye"],
+            index=["unknown", "relaxed", "wide-eyed / whale eye"].index(st.session_state.visual_eyes)
+        )
+        st.session_state.visual_hiding = st.selectbox(
+            "Hiding / avoidance visible",
+            ["unknown", "yes", "no"],
+            index=["unknown", "yes", "no"].index(st.session_state.visual_hiding)
+        )
 
     visuals = [
         st.session_state.visual_mouth,
@@ -1282,11 +1354,25 @@ elif st.session_state.phase == 5:
         ll1, ll2, ll3 = st.columns(3)
 
         with ll1:
-            st.metric("Feedback records collected", feedback_count)
+            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
+            st.markdown("#### Feedback records")
+            st.markdown(f"### {feedback_count}")
+            st.caption("Collected from users")
+            st.markdown("</div>", unsafe_allow_html=True)
+
         with ll2:
-            st.metric("Current training source", "Synthetic + hybrid scoring")
+            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
+            st.markdown("#### Training source")
+            st.markdown("### Synthetic + hybrid")
+            st.caption("Synthetic examples plus evidence scoring")
+            st.markdown("</div>", unsafe_allow_html=True)
+
         with ll3:
-            st.metric("Retraining mode", "Manual / future batch")
+            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
+            st.markdown("#### Retraining")
+            st.markdown("### Future batch")
+            st.caption("Feedback logged, not live-trained")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.info(
             "This prototype logs feedback for future dataset improvement. It does not automatically retrain after each submission because production systems typically retrain after enough validated feedback is collected."
