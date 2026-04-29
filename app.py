@@ -74,12 +74,33 @@ st.markdown("""
     background-color: #F0FDF4;
     margin-bottom: 1rem;
 }
+.action-hero {
+    padding: 1.4rem;
+    border-radius: 20px;
+    border: 1px solid #BFDBFE;
+    background-color: #EFF6FF;
+    margin-bottom: 1rem;
+}
+.quality-card {
+    padding: 1.4rem;
+    border-radius: 20px;
+    border: 1px solid #E5E7EB;
+    background-color: #F9FAFB;
+    margin-bottom: 1rem;
+}
 .warning-card {
     padding: 1rem;
     border-radius: 16px;
     border: 1px solid #FDE68A;
     background-color: #FFFBEB;
     margin-bottom: 1rem;
+}
+.escalation-card {
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px solid #FECACA;
+    background-color: #FEF2F2;
+    margin-bottom: 0.75rem;
 }
 .kpi {
     padding: 1rem;
@@ -982,144 +1003,186 @@ elif st.session_state.phase == 4:
         context_only_prob_df = pd.DataFrame({"Behavior State": context_only_classes, "Probability": context_only_probs}).sort_values("Probability", ascending=False)
         context_only_confidence = float(context_only_prob_df.iloc[0]["Probability"])
 
-        r1, r2, r3 = st.columns([1.1, 0.9, 0.9])
+        # Decision dashboard
+        r1, r2, r3 = st.columns([1.05, 1.1, 0.85])
 
         with r1:
             st.markdown("<div class='result-card'>", unsafe_allow_html=True)
-            st.markdown(f"### {confidence_color(adjusted_prob)} Likely state: **{pred.title()}**")
+            st.markdown(f"### {confidence_color(adjusted_prob)} Likely state")
+            st.markdown(f"## {pred.title()}")
             st.write(f"**Dog:** {st.session_state.dog_name}")
             st.write(f"**Confidence:** {adjusted_prob:.0%} — {confidence_label(adjusted_prob)}")
             st.progress(adjusted_prob)
-            st.write(f"**Secondary possibility:** {second_state.title()} ({second_prob:.0%})")
+            st.write(f"**Secondary:** {second_state.title()} ({second_prob:.0%})")
             st.markdown("</div>", unsafe_allow_html=True)
 
         with r2:
-            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
-            st.markdown("### Interpretation Quality")
-            st.write(f"**Input completeness:** {quality_label(completeness)}")
-            st.write(f"**Image cues used:** {'Yes' if inputs['image_available'] == 'yes' else 'No'}")
-            st.write(f"**Missing visual cues:** {len(missing)}")
-            st.progress(completeness)
+            st.markdown("<div class='action-hero'>", unsafe_allow_html=True)
+            st.markdown("### Recommended action")
+            st.write(rec["summary"])
+            for step in rec["do_now"][:3]:
+                st.write(f"- {step}")
             st.markdown("</div>", unsafe_allow_html=True)
 
         with r3:
-            st.markdown("<div class='education-box'>", unsafe_allow_html=True)
-            st.markdown("### Learning Takeaway")
-            st.write(education["what_it_means"])
+            st.markdown("<div class='quality-card'>", unsafe_allow_html=True)
+            st.markdown("### Quality")
+            st.write(f"**Input:** {quality_label(completeness)}")
+            st.write(f"**Image cues:** {'Used' if inputs['image_available'] == 'yes' else 'Not used'}")
+            st.write(f"**Missing cues:** {len(missing)}")
+            st.progress(completeness)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("### AI Reasoning Summary")
-        st.markdown("<div class='ai-box'>", unsafe_allow_html=True)
-        for reason in build_reasoning(inputs, inputs["image_available"], completeness):
-            st.write(f"- {reason}")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("### Confidence Drivers")
-        for driver in confidence_drivers(inputs, completeness, adjusted_prob):
-            st.write(f"- {driver}")
-
-        st.markdown("### Image Cue Impact Comparison")
-
-        compare_col1, compare_col2 = st.columns(2)
-
-        with compare_col1:
-            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
-            st.markdown("#### Context Only")
-            st.write("Profile + behavior context")
-            st.write(f"**Prediction:** {context_only_pred.title()}")
-            st.write(f"**Confidence:** {context_only_confidence:.0%}")
+        if adjusted_prob < 0.55:
+            st.markdown("<div class='warning-card'>", unsafe_allow_html=True)
+            st.warning(
+                "Low confidence means the model found mixed or incomplete signals. Use this as a prompt for observation, not a final answer."
+            )
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with compare_col2:
-            st.markdown("<div class='kpi'>", unsafe_allow_html=True)
-            st.markdown("#### Context + Dog Image Cues")
-            st.write("Profile + context + AI-extracted visual cues")
-            st.write(f"**Prediction:** {pred.title()}")
-            st.write(f"**Confidence:** {adjusted_prob:.0%}")
+        st.markdown("### What this means")
+        st.info(
+            f"This does not mean {st.session_state.dog_name} is definitely {pred}. "
+            f"It means the available signals are most consistent with **{pred}**, while some uncertainty may remain."
+        )
+
+        tabs = st.tabs(["Overview", "Why this result", "Image impact", "Learn", "Details"])
+
+        with tabs[0]:
+            st.markdown("### Clear action plan")
+            a1, a2, a3, a4 = st.columns(4)
+
+            with a1:
+                st.markdown("<div class='action-box'>", unsafe_allow_html=True)
+                st.markdown("#### Do now")
+                for step in rec["do_now"]:
+                    st.write(f"- {step}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with a2:
+                st.markdown("<div class='action-box'>", unsafe_allow_html=True)
+                st.markdown("#### Observe next")
+                for step in rec["observe"]:
+                    st.write(f"- {step}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with a3:
+                st.markdown("<div class='action-box'>", unsafe_allow_html=True)
+                st.markdown("#### Avoid")
+                for step in rec["avoid"]:
+                    st.write(f"- {step}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with a4:
+                st.markdown("<div class='escalation-card'>", unsafe_allow_html=True)
+                st.markdown("#### Escalate if")
+                st.write("- Labored breathing")
+                st.write("- Collapse or pale gums")
+                st.write("- Vomiting or severe distress")
+                st.write("- Symptoms worsen or persist")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        with tabs[1]:
+            st.markdown("### AI reasoning summary")
+            st.markdown("<div class='ai-box'>", unsafe_allow_html=True)
+            for reason in build_reasoning(inputs, inputs["image_available"], completeness):
+                st.write(f"- {reason}")
             st.markdown("</div>", unsafe_allow_html=True)
 
-        if inputs["image_available"] == "yes":
-            if context_only_pred != pred:
-                st.success("The dog image cues changed the predicted state. This shows that visible body-language inputs are contributing to the outcome.")
+            st.markdown("### Confidence drivers")
+            for driver in confidence_drivers(inputs, completeness, adjusted_prob):
+                st.write(f"- {driver}")
+
+            st.markdown("### What could change this prediction?")
+            for item in what_would_change_prediction(inputs):
+                st.write(f"- {item}")
+
+        with tabs[2]:
+            st.markdown("### Image cue impact comparison")
+
+            compare_col1, compare_col2 = st.columns(2)
+
+            with compare_col1:
+                st.markdown("<div class='kpi'>", unsafe_allow_html=True)
+                st.markdown("#### Context only")
+                st.write("Profile + behavior context")
+                st.write(f"**Prediction:** {context_only_pred.title()}")
+                st.write(f"**Confidence:** {context_only_confidence:.0%}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with compare_col2:
+                st.markdown("<div class='kpi'>", unsafe_allow_html=True)
+                st.markdown("#### Context + dog image cues")
+                st.write("Profile + context + AI-extracted visual cues")
+                st.write(f"**Prediction:** {pred.title()}")
+                st.write(f"**Confidence:** {adjusted_prob:.0%}")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if inputs["image_available"] == "yes":
+                if context_only_pred != pred:
+                    st.success("The dog image cues changed the predicted state. This shows that visible body-language inputs are contributing to the outcome.")
+                else:
+                    st.info("The dog image cues did not change the top predicted state, but they may still affect confidence and explanation quality.")
             else:
-                st.info("The dog image cues did not change the top predicted state, but they may still affect confidence and explanation quality.")
-        else:
-            st.warning("Because no dog image was used, the system relied mostly on structured context. Uploading a dog image and extracting visible cues can make the interpretation more specific.")
+                st.warning("Because no dog image was used, the system relied mostly on structured context. Uploading a dog image and extracting visible cues can make the interpretation more specific.")
 
-        st.markdown("### What Could Change This Prediction?")
-        for item in what_would_change_prediction(inputs):
-            st.write(f"- {item}")
+        with tabs[3]:
+            st.markdown("### Behavior education")
+            e1, e2, e3 = st.columns(3)
 
-        st.markdown("### Clear Action Plan")
-        a1, a2, a3 = st.columns(3)
+            with e1:
+                st.markdown("<div class='education-box'>", unsafe_allow_html=True)
+                st.markdown("#### What this state means")
+                st.write(education["what_it_means"])
+                st.markdown("</div>", unsafe_allow_html=True)
 
-        with a1:
-            st.markdown("<div class='action-box'>", unsafe_allow_html=True)
-            st.markdown("#### Do Now")
-            st.write(rec["summary"])
-            for step in rec["do_now"]:
-                st.write(f"- {step}")
-            st.markdown("</div>", unsafe_allow_html=True)
+            with e2:
+                st.markdown("#### Common cues")
+                for cue in education["common_cues"]:
+                    st.write(f"- {cue}")
 
-        with a2:
-            st.markdown("<div class='action-box'>", unsafe_allow_html=True)
-            st.markdown("#### Observe Next")
-            for step in rec["observe"]:
-                st.write(f"- {step}")
-            st.markdown("</div>", unsafe_allow_html=True)
+            with e3:
+                st.markdown("#### Watch for")
+                for cue in education["watch_for"]:
+                    st.write(f"- {cue}")
 
-        with a3:
-            st.markdown("<div class='action-box'>", unsafe_allow_html=True)
-            st.markdown("#### Avoid")
-            for step in rec["avoid"]:
-                st.write(f"- {step}")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("### Behavior Education")
-        e1, e2 = st.columns(2)
-        with e1:
-            st.markdown("#### Common cues")
-            for cue in education["common_cues"]:
-                st.write(f"- {cue}")
-        with e2:
-            st.markdown("#### Watch for")
-            for cue in education["watch_for"]:
-                st.write(f"- {cue}")
-
-        with st.expander("Risk, protective, and missing signals"):
+        with tabs[4]:
+            st.markdown("### Risk, protective, and missing signals")
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown("#### Risk Factors")
+                st.markdown("#### Risk factors")
                 for item in risk:
                     st.write(f"- {item}")
             with c2:
-                st.markdown("#### Protective Factors")
+                st.markdown("#### Protective factors")
                 for item in protective:
                     st.write(f"- {item}")
             with c3:
-                st.markdown("#### Missing Signals")
+                st.markdown("#### Missing signals")
                 if missing:
                     for item in missing:
                         st.write(f"- {item}")
                 else:
                     st.write("- No major visual cues missing")
 
-        st.markdown("### Owner Assumption Comparison")
-        if inputs["assumption"] == "unsure":
-            st.info("No owner assumption was provided, so the system cannot compare against a baseline interpretation.")
-        elif inputs["assumption"] == pred:
-            st.success(f"The AI interpretation aligns with your initial assumption of **{inputs['assumption']}**.")
-        else:
-            st.warning(
-                f"You assumed **{inputs['assumption']}**, while the model predicted **{pred}**. This may represent a potential interpretation correction."
-            )
+            st.markdown("### Owner assumption comparison")
+            if inputs["assumption"] == "unsure":
+                st.info("No owner assumption was provided, so the system cannot compare against a baseline interpretation.")
+            elif inputs["assumption"] == pred:
+                st.success(f"The AI interpretation aligns with your initial assumption of **{inputs['assumption']}**.")
+            else:
+                st.warning(
+                    f"You assumed **{inputs['assumption']}**, while the model predicted **{pred}**. This may represent a potential interpretation correction."
+                )
 
-        with st.expander("Probability distribution"):
-            st.bar_chart(prob_df.set_index("Behavior State"))
+            with st.expander("Probability distribution"):
+                st.bar_chart(prob_df.set_index("Behavior State"))
 
-        with st.expander("When to seek professional help"):
-            for item in escalation_guidance():
-                st.write(f"- {item}")
+            with st.expander("When to seek professional help"):
+                for item in escalation_guidance():
+                    st.write(f"- {item}")
+
+        st.write("The interpretation is complete. Feedback helps improve future versions but is not required.")
 
         nav1, nav2, spacer = st.columns([1, 1, 3])
         with nav1:
