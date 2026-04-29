@@ -86,6 +86,7 @@ st.markdown("""
     border-radius: 16px;
     border: 1px solid #E5E7EB;
     background-color: #F9FAFB;
+    margin-bottom: 0.75rem;
 }
 .action-box {
     padding: 1rem;
@@ -99,6 +100,13 @@ st.markdown("""
     border-radius: 16px;
     border: 1px solid #DDD6FE;
     background-color: #F5F3FF;
+    margin-bottom: 0.75rem;
+}
+.ai-box {
+    padding: 1rem;
+    border-radius: 16px;
+    border: 1px solid #BFDBFE;
+    background-color: #EFF6FF;
     margin-bottom: 0.75rem;
 }
 </style>
@@ -142,7 +150,7 @@ for key, default in {
 # ==================================================
 
 @st.cache_data
-def generate_data(n=1400):
+def generate_data(n=1600):
     np.random.seed(42)
 
     behaviors = ["panting", "pacing", "whining", "hiding", "toy-seeking", "resting"]
@@ -257,7 +265,7 @@ def train_model(df):
 
     model = Pipeline([
         ("prep", preprocessor),
-        ("rf", RandomForestClassifier(n_estimators=220, random_state=42, class_weight="balanced"))
+        ("rf", RandomForestClassifier(n_estimators=240, random_state=42, class_weight="balanced"))
     ])
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -345,9 +353,7 @@ Be conservative. If a cue is not clearly visible, use "unknown".
                 }
             ]
         )
-
         return json.loads(response.output_text)
-
     except Exception as e:
         return {"error": f"Image analysis failed: {str(e)}"}
 
@@ -450,11 +456,46 @@ def escalation_guidance():
     ]
 
 
+def education_for(pred):
+    return {
+        "recovery": {
+            "what_it_means": "Recovery means the behavior may be a normal response after activity, excitement, or warmth.",
+            "common_cues": ["Panting after activity", "Short duration", "Relaxed or neutral body posture"],
+            "watch_for": ["Panting that does not reduce with rest", "Labored breathing", "Lethargy or collapse"]
+        },
+        "anxiety": {
+            "what_it_means": "Anxiety means the dog may be responding to stress, uncertainty, fear, or environmental triggers.",
+            "common_cues": ["Pacing", "Hiding", "Pinned ears", "Tucked tail", "Whale eye"],
+            "watch_for": ["Escalating avoidance", "Repeated inability to settle", "Frequent fear responses"]
+        },
+        "boredom": {
+            "what_it_means": "Boredom means the dog may need mental stimulation, engagement, or structured activity.",
+            "common_cues": ["Toy-seeking", "Restlessness", "Low recent activity", "Attention-seeking"],
+            "watch_for": ["Demand behavior increasing", "Destructive behavior", "Difficulty settling"]
+        },
+        "overstimulation": {
+            "what_it_means": "Overstimulation means the dog may be over-aroused and needs decompression rather than more activity.",
+            "common_cues": ["Pacing after activity", "Panting after excitement", "Inability to settle"],
+            "watch_for": ["Jumping, mouthing, or frantic behavior", "Escalation after more play", "Difficulty calming down"]
+        },
+        "neutral": {
+            "what_it_means": "Neutral means the available signals do not strongly suggest stress, boredom, overstimulation, or concern.",
+            "common_cues": ["Relaxed posture", "Short duration", "Resting", "No obvious stressors"],
+            "watch_for": ["Sudden behavior changes", "Persistent unusual behavior", "Changes in appetite or responsiveness"]
+        },
+        "needs observation": {
+            "what_it_means": "Needs observation means the signals are unclear or potentially elevated, so the safest response is monitoring and cautious escalation.",
+            "common_cues": ["Long duration", "Senior dog", "Unclear cause", "Incomplete visual cues"],
+            "watch_for": ["Symptoms worsening", "Repeated episodes", "Any medical warning signs"]
+        }
+    }[pred]
+
+
 def build_reasoning(inputs, image_available, completeness):
     reasons = []
 
     if image_available == "yes":
-        reasons.append("AI-assisted image cues were included, so the prediction uses both owner context and visible body-language signals.")
+        reasons.append("AI-extracted image cues were included, so the prediction uses both owner context and visible body-language signals.")
     else:
         reasons.append("No image was used in this run. The interpretation is based on profile and behavior context only.")
 
@@ -561,6 +602,63 @@ def factors(inputs):
     return risk, protective, missing
 
 
+def confidence_drivers(inputs, completeness, adjusted_prob):
+    drivers = []
+
+    if inputs["image_available"] == "yes":
+        drivers.append("Image cues included")
+    else:
+        drivers.append("No image cues included")
+
+    if completeness >= 0.75:
+        drivers.append("High input completeness")
+    elif completeness >= 0.4:
+        drivers.append("Moderate input completeness")
+    else:
+        drivers.append("Low input completeness")
+
+    if inputs["assumption"] != "unsure":
+        drivers.append("Owner baseline assumption available")
+    else:
+        drivers.append("No owner baseline assumption")
+
+    if adjusted_prob < 0.55:
+        drivers.append("Low confidence: observe more signals before acting strongly")
+    elif adjusted_prob >= 0.75:
+        drivers.append("High confidence: signals are more internally consistent")
+    else:
+        drivers.append("Moderate confidence: some ambiguity remains")
+
+    return drivers
+
+
+def what_would_change_prediction(inputs):
+    suggestions = []
+
+    if inputs["image_available"] == "no":
+        suggestions.append("Uploading a clear dog image could add body-language cues and improve interpretation quality.")
+
+    if inputs["visual_posture"] == "unknown":
+        suggestions.append("Knowing whether posture is relaxed, tense, or crouched would help distinguish anxiety from recovery or neutrality.")
+
+    if inputs["visual_ears"] == "unknown" or inputs["visual_tail"] == "unknown":
+        suggestions.append("Ear and tail position could shift the interpretation toward stress or away from it.")
+
+    if inputs["behavior"] == "panting":
+        suggestions.append("If panting continues after rest or occurs without heat/activity, concern would increase.")
+
+    if inputs["behavior"] == "pacing":
+        suggestions.append("If pacing decreases after enrichment, boredom becomes more likely; if it persists with stress cues, anxiety becomes more likely.")
+
+    if inputs["duration"] != "long":
+        suggestions.append("A longer duration would increase concern and may shift the system toward anxiety or needs observation.")
+
+    if not suggestions:
+        suggestions.append("More complete visual cues and follow-up feedback would improve future interpretation.")
+
+    return suggestions
+
+
 # ==================================================
 # SIDEBAR
 # ==================================================
@@ -571,7 +669,19 @@ with st.sidebar:
     st.metric("Weighted Precision", f"{metrics['precision']:.0%}")
     st.metric("Weighted Recall", f"{metrics['recall']:.0%}")
 
-    with st.expander("How to read this result", expanded=True):
+    with st.expander("How AI is used", expanded=True):
+        st.write(
+            """
+            This prototype uses two AI components:
+            
+            1. A supervised ML classifier predicts the likely behavior state.
+            2. An optional vision model validates dog images and extracts visual cues.
+            
+            The app is preventive behavioral decision support, not diagnosis.
+            """
+        )
+
+    with st.expander("How to read this result"):
         current_image_status = None
 
         if st.session_state.get("prediction_result") is not None:
@@ -579,19 +689,14 @@ with st.sidebar:
 
         if current_image_status == "yes":
             st.success(
-                "Image cues were used in this interpretation. The model considered AI-extracted body-language cues "
-                "such as mouth position, posture, ears, tail, eyes, and hiding/avoidance."
+                "Image cues were used. The model considered AI-extracted body-language cues such as mouth position, posture, ears, tail, eyes, and hiding/avoidance."
             )
         elif current_image_status == "no":
             st.warning(
-                "No image was used in this run. This result is based on your dog’s profile and behavior context only. "
-                "Because no dog image was uploaded, the system could not use visible body-language cues like posture, "
-                "ears, tail, or eye expression. Adding a dog image may improve interpretation quality."
+                "No image was used. This result is based on your dog’s profile and behavior context only. Adding a dog image may improve interpretation quality."
             )
         else:
-            st.info(
-                "Complete the interpreter to see whether the final result uses AI-extracted image cues or context only."
-            )
+            st.info("Complete the interpreter to see whether the result uses AI-extracted image cues or context only.")
 
     with st.expander("Data transparency"):
         st.write(
@@ -610,7 +715,7 @@ with st.sidebar:
 
 st.title("🐶 Dog Behavior Interpreter")
 st.write(
-    "A mobile-first AI prototype that helps owners interpret ambiguous dog behavior using profile, context, and AI-extracted image cues."
+    "A preventive AI decision-support prototype that helps owners understand ambiguous dog behavior using profile, context, and optional image cues."
 )
 
 st.markdown("""
@@ -694,7 +799,7 @@ elif st.session_state.phase == 3:
     st.markdown("## Phase 3 — AI Image Cue Review")
 
     st.write(
-        "Upload a dog image if available. The app will use AI to validate the image and pre-fill visible body-language cues. You can review and override the selections before analysis."
+        "Upload a dog image if available. The app can use AI to validate the image and pre-fill visible body-language cues. You can review and override the selections before analysis."
     )
 
     image = st.file_uploader(
@@ -714,6 +819,7 @@ elif st.session_state.phase == 3:
 
             if "error" in image_result:
                 st.error(image_result["error"])
+                st.info("You can still continue without image AI by leaving the visual cues as unknown or manually selecting them.")
                 st.session_state.image_available = "no"
 
             elif not image_result.get("image_valid", False):
@@ -748,7 +854,7 @@ elif st.session_state.phase == 3:
         if st.session_state.image_ai_reason:
             st.write(f"**Image analysis note:** {st.session_state.image_ai_reason}")
     else:
-        st.info("No valid dog image is currently included. You can continue using profile and behavior context only.")
+        st.info("No valid dog image is currently included. You can continue using profile and behavior context only, or manually select visual cues you observe.")
 
     c1, c2, c3 = st.columns(3)
 
@@ -857,6 +963,7 @@ elif st.session_state.phase == 4:
 
         risk, protective, missing = factors(inputs)
         rec = recommendation_for(pred)
+        education = education_for(pred)
 
         context_only_inputs = inputs.copy()
         context_only_inputs["image_available"] = "no"
@@ -898,31 +1005,18 @@ elif st.session_state.phase == 4:
         with r3:
             st.markdown("<div class='education-box'>", unsafe_allow_html=True)
             st.markdown("### Learning Takeaway")
-            if pred == "recovery":
-                st.write("Panting after activity or warmth may reflect recovery rather than anxiety.")
-            elif pred == "anxiety":
-                st.write("Stress interpretation becomes stronger when behavior is paired with tense body-language cues or environmental triggers.")
-            elif pred == "boredom":
-                st.write("Boredom is more likely when active behavior appears without recent stimulation or stress signals.")
-            elif pred == "overstimulation":
-                st.write("High arousal after activity can look like distress, but may respond best to decompression.")
-            elif pred == "neutral":
-                st.write("Not every behavior needs intervention. Relaxed cues and short duration can lower concern.")
-            else:
-                st.write("Unclear signals should be observed over time rather than treated as a definitive conclusion.")
+            st.write(education["what_it_means"])
             st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("### Why This Outcome Changed")
-        if inputs["image_available"] == "yes":
-            st.success("A dog image was used in this run. The model considered AI-extracted visual cues along with behavior context.")
-        else:
-            st.warning(
-                "No image was used in this run. The interpretation is based on your dog’s profile and behavior context only. "
-                "Because no dog image was uploaded, the system could not use visible body-language cues such as posture, ears, tail, or eye expression."
-            )
-
+        st.markdown("### AI Reasoning Summary")
+        st.markdown("<div class='ai-box'>", unsafe_allow_html=True)
         for reason in build_reasoning(inputs, inputs["image_available"], completeness):
             st.write(f"- {reason}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("### Confidence Drivers")
+        for driver in confidence_drivers(inputs, completeness, adjusted_prob):
+            st.write(f"- {driver}")
 
         st.markdown("### Image Cue Impact Comparison")
 
@@ -946,17 +1040,15 @@ elif st.session_state.phase == 4:
 
         if inputs["image_available"] == "yes":
             if context_only_pred != pred:
-                st.success(
-                    "The dog image cues changed the predicted state. This shows that visible body-language inputs are contributing to the outcome."
-                )
+                st.success("The dog image cues changed the predicted state. This shows that visible body-language inputs are contributing to the outcome.")
             else:
-                st.info(
-                    "The dog image cues did not change the top predicted state, but they may still affect confidence and explanation quality."
-                )
+                st.info("The dog image cues did not change the top predicted state, but they may still affect confidence and explanation quality.")
         else:
-            st.warning(
-                "Because no dog image was used, both outputs rely mostly on structured context. Uploading a dog image and extracting visible cues can make the interpretation more specific."
-            )
+            st.warning("Because no dog image was used, the system relied mostly on structured context. Uploading a dog image and extracting visible cues can make the interpretation more specific.")
+
+        st.markdown("### What Could Change This Prediction?")
+        for item in what_would_change_prediction(inputs):
+            st.write(f"- {item}")
 
         st.markdown("### Clear Action Plan")
         a1, a2, a3 = st.columns(3)
@@ -983,6 +1075,17 @@ elif st.session_state.phase == 4:
                 st.write(f"- {step}")
             st.markdown("</div>", unsafe_allow_html=True)
 
+        st.markdown("### Behavior Education")
+        e1, e2 = st.columns(2)
+        with e1:
+            st.markdown("#### Common cues")
+            for cue in education["common_cues"]:
+                st.write(f"- {cue}")
+        with e2:
+            st.markdown("#### Watch for")
+            for cue in education["watch_for"]:
+                st.write(f"- {cue}")
+
         with st.expander("Risk, protective, and missing signals"):
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -1008,8 +1111,7 @@ elif st.session_state.phase == 4:
             st.success(f"The AI interpretation aligns with your initial assumption of **{inputs['assumption']}**.")
         else:
             st.warning(
-                f"You assumed **{inputs['assumption']}**, while the model predicted **{pred}**. "
-                "This may represent a potential interpretation correction."
+                f"You assumed **{inputs['assumption']}**, while the model predicted **{pred}**. This may represent a potential interpretation correction."
             )
 
         with st.expander("Probability distribution"):
@@ -1062,9 +1164,7 @@ elif st.session_state.phase == 5:
             st.metric("Retraining mode", "Manual / future batch")
 
         st.info(
-            "This prototype logs feedback for future dataset improvement. "
-            "It does not automatically retrain the model after each feedback submission, "
-            "because production AI systems typically retrain after enough validated feedback has been collected."
+            "This prototype logs feedback for future dataset improvement. It does not automatically retrain the model after each feedback submission, because production AI systems typically retrain after enough validated feedback has been collected."
         )
 
         with st.form("feedback_form"):
